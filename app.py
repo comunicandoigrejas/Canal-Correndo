@@ -3,6 +3,7 @@ import datetime
 from datetime import date
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from openai import OpenAI  # <--- NOVA IMPORTAÇÃO NECESSÁRIA
 
 # --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
@@ -31,27 +32,31 @@ st.markdown("""
 def conectar_gsheets():
     """Conecta ao Google Sheets usando os segredos do Streamlit"""
     try:
-        # Verifica se os segredos existem antes de tentar conectar
         if "gcp_service_account" not in st.secrets:
-            st.warning("Segredos do Google não encontrados. O salvamento não funcionará localmente sem o arquivo secrets.toml.")
+            st.warning("Segredos do Google não encontrados.")
             return None
 
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
-        # IMPORTANTE: O nome da planilha aqui deve ser EXATAMENTE igual ao nome no Google Drive
         sheet = client.open("Running_Data").sheet1 
         return sheet
     except Exception as e:
         st.error(f"Erro ao conectar no Google Sheets: {e}")
         return None
 
+def carregar_contexto_ia():
+    """Lê o arquivo de texto com os treinos (NOVA FUNÇÃO)"""
+    try:
+        with open("treino_contexto.md", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "Erro: Arquivo 'treino_contexto.md' não encontrado na pasta do projeto."
+
 def verificar_senha():
     """Função de callback para verificar senha"""
-    # SENHA DEFINIDA AQUI (Idealmente coloque no secrets também)
     SENHA_ACESSO = "run2026" 
-    
     if st.session_state["password_input"] == SENHA_ACESSO:
         st.session_state["autenticado"] = True
     else:
@@ -63,9 +68,7 @@ def navegar_para(pagina):
 def voltar_home():
     st.session_state["pagina_atual"] = "dashboard"
 
-# --- 3. INICIALIZAÇÃO DO ESTADO (A CORREÇÃO DO SEU ERRO ESTÁ AQUI) ---
-# O Streamlit roda o script inteiro a cada clique. 
-# Precisamos garantir que essas variáveis existam antes de qualquer 'if'.
+# --- 3. INICIALIZAÇÃO DO ESTADO ---
 
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
@@ -73,11 +76,15 @@ if "autenticado" not in st.session_state:
 if "pagina_atual" not in st.session_state:
     st.session_state["pagina_atual"] = "dashboard"
 
+# Inicializa o histórico do chat se não existir
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+
 # --- 4. TELA DE LOGIN ---
 if not st.session_state["autenticado"]:
     st.title("🔒 Acesso Restrito")
     st.text_input("Digite a senha de acesso:", type="password", key="password_input", on_change=verificar_senha)
-    st.stop() # Para a execução aqui até logar
+    st.stop() 
 
 # --- 5. LÓGICA DE NAVEGAÇÃO ---
 
@@ -85,7 +92,7 @@ if not st.session_state["autenticado"]:
 if st.session_state["pagina_atual"] == "dashboard":
     st.title("🏃 Running Coach AI")
 
-    # DADOS MOCKADOS (Simulação do JSON de treino)
+    # MOCK DATA (Isso aqui você pode conectar com o Google Sheets depois se quiser)
     AGENDA_TREINOS = {
         "2026-01-26": {"tipo": "Tiro", "detalhes": "10 min aquecimento + 8x 400m forte (p: 1:30) + 10 min desaquecimento"},
         "2026-01-27": {"tipo": "Rodagem", "detalhes": "8km leve Z2"},
@@ -141,33 +148,67 @@ elif st.session_state["pagina_atual"] == "registro":
             if sheet:
                 try:
                     data_str = data_realizada.strftime("%d/%m/%Y")
-                    # Adiciona timestamp para saber quando foi registrado
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
                     nova_linha = [data_str, distancia, tempo_input, percepcao, obs, timestamp]
-                    
                     sheet.append_row(nova_linha)
                     st.success("✅ Treino salvo com sucesso na nuvem!")
                     st.balloons()
                 except Exception as e:
                     st.error(f"Erro ao gravar dados: {e}")
             else:
-                st.error("Não foi possível conectar à planilha. Verifique seus 'Secrets'.")
+                st.error("Não foi possível conectar à planilha.")
 
 # === PÁGINA: AGENDA ===
 elif st.session_state["pagina_atual"] == "agenda":
     st.button("⬅ Voltar", on_click=voltar_home)
     st.header("📅 Próximos Treinos")
-    st.write("Funcionalidade em desenvolvimento...")
+    st.info("Aqui você pode implementar um calendário visual ou lista dos próximos treinos.")
+    # Exemplo: st.table(AGENDA_TREINOS)
 
 # === PÁGINA: HISTÓRICO ===
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=voltar_home)
     st.header("📊 Histórico")
-    st.write("Funcionalidade em desenvolvimento...")
+    st.info("Aqui você pode puxar os dados do Google Sheets e criar gráficos com st.line_chart().")
 
-# === PÁGINA: IA COACH ===
+# === PÁGINA: IA COACH (ATUALIZADA) ===
 elif st.session_state["pagina_atual"] == "ia_coach":
     st.button("⬅ Voltar", on_click=voltar_home)
-    st.header("🤖 Adaptar Treino")
-    st.write("Funcionalidade em desenvolvimento...")
+    st.header("🤖 Treinador IA")
+    
+    # Verifica chave da OpenAI
+    if "openai_key" in st.secrets:
+        client = OpenAI(api_key=st.secrets["openai_key"])
+        
+        # Se o histórico estiver vazio, carrega o contexto do arquivo .md
+        if not st.session_state["messages"]:
+            contexto = carregar_contexto_ia()
+            st.session_state["messages"].append({
+                "role": "system", 
+                "content": f"Você é um treinador de corrida experiente. O contexto do aluno é: {contexto}. Responda de forma curta e direta."
+            })
+
+        # Exibe mensagens antigas
+        for msg in st.session_state.messages:
+            if msg["role"] != "system":
+                st.chat_message(msg["role"]).write(msg["content"])
+
+        # Input do Usuário
+        if prompt := st.chat_input("Dúvida sobre o treino?"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.chat_message("user").write(prompt)
+
+            try:
+                # Chamada API
+                response = client.chat.completions.create(
+                    model="gpt-4o", 
+                    messages=st.session_state.messages
+                )
+                msg_resposta = response.choices[0].message.content
+                
+                st.session_state.messages.append({"role": "assistant", "content": msg_resposta})
+                st.chat_message("assistant").write(msg_resposta)
+            except Exception as e:
+                st.error(f"Erro na comunicação com a IA: {e}")
+    else:
+        st.warning("⚠️ Chave da OpenAI não encontrada. Adicione 'openai_key' ao secrets.toml.")
