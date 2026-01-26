@@ -3,7 +3,8 @@ import datetime
 from datetime import date
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from openai import OpenAI  # <--- NOVA IMPORTAÇÃO NECESSÁRIA
+from openai import OpenAI
+import pandas as pd
 
 # --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
@@ -27,7 +28,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES AUXILIARES ---
+# --- 2. FUNÇÕES DE CONEXÃO E DADOS ---
 
 def conectar_gsheets():
     """Conecta ao Google Sheets usando os segredos do Streamlit"""
@@ -40,22 +41,48 @@ def conectar_gsheets():
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
-        sheet = client.open("Running_Data").sheet1 
-        return sheet
+        # Abre a planilha principal
+        return client.open("Running_Data")
     except Exception as e:
         st.error(f"Erro ao conectar no Google Sheets: {e}")
         return None
 
+def carregar_agenda_hoje():
+    """Busca na aba 'Agenda' do Google Sheets se há treino para hoje"""
+    try:
+        spreadsheet = conectar_gsheets()
+        if spreadsheet:
+            # Tenta acessar a aba específica 'Agenda'
+            try:
+                worksheet = spreadsheet.worksheet("Agenda")
+            except:
+                st.warning("Aba 'Agenda' não encontrada na planilha. Crie uma aba com colunas: Data, Tipo, Detalhes.")
+                return None
+
+            treinos = worksheet.get_all_records()
+            # Formato brasileiro para comparação: DD/MM/AAAA
+            hoje_str = date.today().strftime("%d/%m/%Y") 
+            
+            for treino in treinos:
+                # Converte a data da planilha para string para comparar
+                if str(treino['Data']) == hoje_str:
+                    return treino
+            return None
+    except Exception as e:
+        st.error(f"Erro ao ler agenda: {e}")
+        return None
+
 def carregar_contexto_ia():
-    """Lê o arquivo de texto com os treinos (NOVA FUNÇÃO)"""
+    """Lê o arquivo de texto com os treinos"""
     try:
         with open("treino_contexto.md", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        return "Erro: Arquivo 'treino_contexto.md' não encontrado na pasta do projeto."
+        return "Aviso: Arquivo 'treino_contexto.md' não encontrado. A IA está sem contexto."
+
+# --- 3. FUNÇÕES DE UTILIDADE ---
 
 def verificar_senha():
-    """Função de callback para verificar senha"""
     SENHA_ACESSO = "run2026" 
     if st.session_state["password_input"] == SENHA_ACESSO:
         st.session_state["autenticado"] = True
@@ -68,7 +95,7 @@ def navegar_para(pagina):
 def voltar_home():
     st.session_state["pagina_atual"] = "dashboard"
 
-# --- 3. INICIALIZAÇÃO DO ESTADO ---
+# --- 4. INICIALIZAÇÃO DO ESTADO ---
 
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
@@ -76,43 +103,36 @@ if "autenticado" not in st.session_state:
 if "pagina_atual" not in st.session_state:
     st.session_state["pagina_atual"] = "dashboard"
 
-# Inicializa o histórico do chat se não existir
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 
-# --- 4. TELA DE LOGIN ---
+# --- 5. TELA DE LOGIN ---
 if not st.session_state["autenticado"]:
     st.title("🔒 Acesso Restrito")
     st.text_input("Digite a senha de acesso:", type="password", key="password_input", on_change=verificar_senha)
     st.stop() 
 
-# --- 5. LÓGICA DE NAVEGAÇÃO ---
+# --- 6. LÓGICA DE NAVEGAÇÃO ---
 
 # === PÁGINA: DASHBOARD (HOME) ===
 if st.session_state["pagina_atual"] == "dashboard":
     st.title("🏃 Running Coach AI")
 
-    # MOCK DATA (Isso aqui você pode conectar com o Google Sheets depois se quiser)
-    AGENDA_TREINOS = {
-        "2026-01-26": {"tipo": "Tiro", "detalhes": "10 min aquecimento + 8x 400m forte (p: 1:30) + 10 min desaquecimento"},
-        "2026-01-27": {"tipo": "Rodagem", "detalhes": "8km leve Z2"},
-        "2026-01-28": {"tipo": "Descanso", "detalhes": "Off total ou alongamento"}
-    }
-    
-    hoje = date.today().strftime("%Y-%m-%d")
-    treino_hoje = AGENDA_TREINOS.get(hoje)
+    # Busca treino real
+    with st.spinner("Sincronizando agenda..."):
+        treino_hoje = carregar_agenda_hoje()
     
     st.subheader("📅 Status do Dia")
     
     if treino_hoje:
         st.markdown(f"""
         <div class="highlight-card">
-            <h3>Hoje é dia de: {treino_hoje['tipo']}</h3>
-            <p>{treino_hoje['detalhes']}</p>
+            <h3>Hoje é dia de: {treino_hoje['Tipo']}</h3>
+            <p><strong>Treino:</strong> {treino_hoje['Detalhes']}</p>
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Hoje não há treino programado na agenda base. Bom descanso! 💤")
+        st.info("Nenhum treino agendado para hoje (verifique a aba 'Agenda' ou a data). Bom descanso! 💤")
 
     st.markdown("---")
     
@@ -144,12 +164,17 @@ elif st.session_state["pagina_atual"] == "registro":
         submitted = st.form_submit_button("Salvar Registro")
         
         if submitted:
-            sheet = conectar_gsheets()
-            if sheet:
+            spreadsheet = conectar_gsheets()
+            if spreadsheet:
                 try:
+                    # Usa a primeira aba (padrão) para salvar registros
+                    sheet = spreadsheet.sheet1
+                    
                     data_str = data_realizada.strftime("%d/%m/%Y")
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
                     nova_linha = [data_str, distancia, tempo_input, percepcao, obs, timestamp]
+                    
                     sheet.append_row(nova_linha)
                     st.success("✅ Treino salvo com sucesso na nuvem!")
                     st.balloons()
@@ -162,44 +187,73 @@ elif st.session_state["pagina_atual"] == "registro":
 elif st.session_state["pagina_atual"] == "agenda":
     st.button("⬅ Voltar", on_click=voltar_home)
     st.header("📅 Próximos Treinos")
-    st.info("Aqui você pode implementar um calendário visual ou lista dos próximos treinos.")
-    # Exemplo: st.table(AGENDA_TREINOS)
+    
+    spreadsheet = conectar_gsheets()
+    if spreadsheet:
+        try:
+            worksheet = spreadsheet.worksheet("Agenda")
+            dados = worksheet.get_all_records()
+            if dados:
+                df = pd.DataFrame(dados)
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.info("A agenda está vazia.")
+        except:
+            st.error("Aba 'Agenda' não encontrada.")
 
 # === PÁGINA: HISTÓRICO ===
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=voltar_home)
-    st.header("📊 Histórico")
-    st.info("Aqui você pode puxar os dados do Google Sheets e criar gráficos com st.line_chart().")
+    st.header("📊 Histórico de Execução")
+    
+    spreadsheet = conectar_gsheets()
+    if spreadsheet:
+        try:
+            # Pega dados da aba de registros (sheet1)
+            sheet = spreadsheet.sheet1
+            dados = sheet.get_all_records()
+            if dados:
+                df = pd.DataFrame(dados)
+                st.dataframe(df, use_container_width=True)
+                
+                # Exemplo simples de gráfico se tiver a coluna Distancia
+                if "Distancia" in df.columns:
+                     # Limpeza básica para garantir que é número
+                     # df["Distancia"] = pd.to_numeric(df["Distancia"], errors='coerce')
+                     st.line_chart(df, x="Data", y="Distancia")
+            else:
+                st.info("Nenhum registro encontrado ainda.")
+        except Exception as e:
+            st.error(f"Erro ao carregar histórico: {e}")
 
-# === PÁGINA: IA COACH (ATUALIZADA) ===
+# === PÁGINA: IA COACH ===
 elif st.session_state["pagina_atual"] == "ia_coach":
     st.button("⬅ Voltar", on_click=voltar_home)
     st.header("🤖 Treinador IA")
     
-    # Verifica chave da OpenAI
     if "openai_key" in st.secrets:
         client = OpenAI(api_key=st.secrets["openai_key"])
         
-        # Se o histórico estiver vazio, carrega o contexto do arquivo .md
+        # Inicializa Chat com Contexto
         if not st.session_state["messages"]:
             contexto = carregar_contexto_ia()
+            # Adiciona prompt do sistema (invisível ao usuário)
             st.session_state["messages"].append({
                 "role": "system", 
-                "content": f"Você é um treinador de corrida experiente. O contexto do aluno é: {contexto}. Responda de forma curta e direta."
+                "content": f"Você é um treinador de corrida experiente e motivador. O contexto técnico do aluno é: {contexto}. Responda de forma curta."
             })
 
-        # Exibe mensagens antigas
+        # Exibe mensagens
         for msg in st.session_state.messages:
             if msg["role"] != "system":
                 st.chat_message(msg["role"]).write(msg["content"])
 
-        # Input do Usuário
+        # Input
         if prompt := st.chat_input("Dúvida sobre o treino?"):
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.chat_message("user").write(prompt)
 
             try:
-                # Chamada API
                 response = client.chat.completions.create(
                     model="gpt-4o", 
                     messages=st.session_state.messages
@@ -209,6 +263,6 @@ elif st.session_state["pagina_atual"] == "ia_coach":
                 st.session_state.messages.append({"role": "assistant", "content": msg_resposta})
                 st.chat_message("assistant").write(msg_resposta)
             except Exception as e:
-                st.error(f"Erro na comunicação com a IA: {e}")
+                st.error(f"Erro na API OpenAI: {e}")
     else:
         st.warning("⚠️ Chave da OpenAI não encontrada. Adicione 'openai_key' ao secrets.toml.")
