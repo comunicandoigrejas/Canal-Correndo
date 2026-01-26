@@ -6,11 +6,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from openai import OpenAI
 import pandas as pd
 
-# --- CÓDIGO DE TESTE (Apague depois) ---
-st.write("📂 O que tem dentro dos Secrets?")
-st.write(dict(st.secrets)) 
-# ---------------------------------------
-
 # --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
 
