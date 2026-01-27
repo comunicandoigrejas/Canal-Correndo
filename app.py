@@ -36,7 +36,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. GERENCIAMENTO DE ESTADO E NAVEGAÇÃO (A SOLUÇÃO DO CLIQUE ÚNICO) ---
+# --- 2. GERENCIAMENTO DE ESTADO E NAVEGAÇÃO ---
 
 if "pagina_atual" not in st.session_state:
     st.session_state["pagina_atual"] = "dashboard"
@@ -128,7 +128,7 @@ if st.session_state["pagina_atual"] == "dashboard":
 
     st.markdown("---")
     
-    # MENU GRID COM CALLBACKS (ISSO RESOLVE O PROBLEMA DOS 2 CLIQUES)
+    # MENU GRID
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -139,10 +139,9 @@ if st.session_state["pagina_atual"] == "dashboard":
         st.button("🤖 Adaptar\nTreino (IA)", on_click=navegar_para, args=("ia_coach",))
     with col3:
         st.button("➕ Cadastrar\nTreinos", on_click=navegar_para, args=("cadastro_agenda",))
-        # NOVO BOTÃO DE PROVAS
         st.button("🏅 Provas\n& Metas", on_click=navegar_para, args=("provas",))
 
-# === PÁGINA: PROVAS (NOVA) ===
+# === PÁGINA: PROVAS ===
 elif st.session_state["pagina_atual"] == "provas":
     st.button("⬅ Voltar", on_click=voltar_home)
     st.header("🏅 Calendário de Provas")
@@ -153,24 +152,19 @@ elif st.session_state["pagina_atual"] == "provas":
             worksheet = spreadsheet.worksheet("Provas")
             dados = worksheet.get_all_records()
             
-            # --- SEÇÃO 1: VISUALIZAR PROVAS ---
             if dados:
                 df = pd.DataFrame(dados)
-                # Formatação visual do status
                 def color_status(val):
                     color = 'green' if val == 'Concluída' else 'orange'
                     return f'color: {color}; font-weight: bold'
-                
                 st.dataframe(df.style.applymap(color_status, subset=['Status']), use_container_width=True)
             else:
                 st.info("Nenhuma prova cadastrada.")
                 df = pd.DataFrame()
 
             st.markdown("---")
-            
             tab_add, tab_update = st.tabs(["➕ Nova Prova", "✏️ Atualizar Resultado"])
 
-            # --- ABA 1: CADASTRAR NOVA PROVA ---
             with tab_add:
                 with st.form("nova_prova"):
                     c1, c2 = st.columns(2)
@@ -181,38 +175,32 @@ elif st.session_state["pagina_atual"] == "provas":
                     
                     if submit_prova:
                         data_fmt = data_prova.strftime("%d/%m/%Y")
-                        # Ordem: Data, Nome, Distancia, Status, Tempo
                         worksheet.append_row([data_fmt, nome_prova, distancia_prova, "Pendente", "-"])
                         st.success("Prova agendada!")
-                        st.rerun() # Atualiza a tabela na hora
+                        st.rerun()
 
-            # --- ABA 2: ATUALIZAR RESULTADO ---
             with tab_update:
                 if not df.empty:
-                    # Cria uma lista de provas pendentes para selecionar
                     provas_nomes = df['Nome'].tolist()
                     prova_selecionada = st.selectbox("Selecione a Prova", provas_nomes)
-                    
                     c1, c2 = st.columns(2)
                     foi_realizada = c1.checkbox("✅ Prova Realizada?")
                     tempo_realizado = c2.text_input("Tempo Oficial (ex: 01:55:00)")
                     
                     if st.button("Salvar Resultado"):
-                        # Lógica para encontrar a linha e atualizar
                         cell = worksheet.find(prova_selecionada)
                         if cell:
                             linha = cell.row
-                            # Atualiza colunas D (Status) e E (Tempo)
                             status = "Concluída" if foi_realizada else "Pendente"
-                            worksheet.update_cell(linha, 4, status) # Coluna 4
-                            worksheet.update_cell(linha, 5, tempo_realizado) # Coluna 5
+                            worksheet.update_cell(linha, 4, status)
+                            worksheet.update_cell(linha, 5, tempo_realizado)
                             st.success("Resultado atualizado!")
                             st.rerun()
                 else:
                     st.warning("Cadastre uma prova primeiro.")
 
         except Exception as e:
-            st.error(f"Aba 'Provas' não encontrada ou erro de conexão: {e}. Crie a aba na planilha com cabeçalho: Data, Nome, Distancia, Status, Tempo")
+            st.error(f"Erro: Verifique se a aba 'Provas' existe. Detalhe: {e}")
 
 # === PÁGINA: REGISTRAR TREINO ===
 elif st.session_state["pagina_atual"] == "registro":
@@ -225,11 +213,17 @@ elif st.session_state["pagina_atual"] == "registro":
         tempo_input = st.text_input("Tempo Total (ex: 00:45:00)", value="00:00:00")
         percepcao = st.slider("Cansaço (0=Leve, 10=Exausto)", 0, 10, 5)
         obs = st.text_area("Sensações")
+        
         if st.form_submit_button("Salvar Registro"):
             ss = conectar_gsheets()
             if ss:
-                ss.sheet1.append_row([data_realizada.strftime("%d/%m/%Y"), distancia, tempo_input, percepcao, obs, str(datetime.datetime.now())])
-                st.success("Salvo!")
+                try:
+                    # AGORA SALVA NA ABA 'Registros' ESPECIFICAMENTE
+                    ws = ss.worksheet("Registros")
+                    ws.append_row([data_realizada.strftime("%d/%m/%Y"), distancia, tempo_input, percepcao, obs, str(datetime.datetime.now())])
+                    st.success("Salvo!")
+                except:
+                    st.error("Erro: A aba 'Registros' não foi encontrada. Renomeie a 'Página1' para 'Registros'.")
 
 # === PÁGINA: AGENDA ===
 elif st.session_state["pagina_atual"] == "agenda":
@@ -276,13 +270,21 @@ elif st.session_state["pagina_atual"] == "historico":
     st.header("📊 Histórico")
     ss = conectar_gsheets()
     if ss:
-        df = pd.DataFrame(ss.sheet1.get_all_records())
-        if not df.empty:
-            st.dataframe(df)
-            if "Distancia" in df.columns:
-                # Tratamento simples para garantir números no gráfico
-                df["Distancia"] = pd.to_numeric(df["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
-                st.line_chart(df, x="Data", y="Distancia")
+        try:
+            # AGORA LÊ DA ABA 'Registros'
+            ws = ss.worksheet("Registros")
+            df = pd.DataFrame(ws.get_all_records())
+            
+            if not df.empty:
+                st.dataframe(df)
+                if "Distancia" in df.columns:
+                    # Limpeza para gráfico
+                    df["Distancia"] = pd.to_numeric(df["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
+                    st.line_chart(df, x="Data", y="Distancia")
+            else:
+                st.info("Nenhum registro encontrado.")
+        except:
+            st.error("Aba 'Registros' não encontrada.")
 
 # === PÁGINA: IA COACH ===
 elif st.session_state["pagina_atual"] == "ia_coach":
