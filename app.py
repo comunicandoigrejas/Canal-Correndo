@@ -4,7 +4,7 @@ from datetime import date
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from openai import OpenAI
-import pandas as pd # Essencial para ler arquivos Excel/CSV
+import pandas as pd # Biblioteca necessária para ler arquivos
 
 # --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
@@ -62,6 +62,7 @@ def carregar_agenda_hoje():
             hoje_str = date.today().strftime("%d/%m/%Y") 
             
             for treino in treinos:
+                # Converte para string para garantir a comparação
                 if str(treino['Data']) == hoje_str:
                     return treino
             return None
@@ -292,5 +293,44 @@ elif st.session_state["pagina_atual"] == "cadastro_agenda":
         
         if uploaded_file is not None:
             try:
+                # CORREÇÃO AQUI: Verificando se é CSV ou Excel e lendo corretamente
                 if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+                
+                # Limpa nomes das colunas (tira espaços e coloca maiúscula)
+                df.columns = df.columns.str.strip().str.title()
+                colunas_necessarias = ["Data", "Tipo", "Detalhes"]
+                
+                if all(col in df.columns for col in colunas_necessarias):
+                    st.dataframe(df.head())
+                    
+                    if st.button("Confirmar Importação"):
+                        spreadsheet = conectar_gsheets()
+                        if spreadsheet:
+                            worksheet = spreadsheet.worksheet("Agenda")
+                            progresso = st.progress(0)
+                            total = len(df)
+                            
+                            for index, row in df.iterrows():
+                                # Tratamento de Data
+                                raw_date = row['Data']
+                                try:
+                                    if isinstance(raw_date, (pd.Timestamp, datetime.date, datetime.datetime)):
+                                        data_fmt = raw_date.strftime("%d/%m/%Y")
+                                    else:
+                                        data_fmt = pd.to_datetime(raw_date, dayfirst=True).strftime("%d/%m/%Y")
+                                except:
+                                    data_fmt = str(raw_date)
+
+                                linha = [data_fmt, row['Tipo'], row['Detalhes']]
+                                worksheet.append_row(linha)
+                                progresso.progress((index + 1) / total)
+                            
+                            st.success("✅ Importação concluída!")
+                else:
+                    st.error(f"Erro: O arquivo precisa ter as colunas {colunas_necessarias}")
+            
+            except Exception as e:
+                st.error(f"Erro ao processar arquivo: {e}")
