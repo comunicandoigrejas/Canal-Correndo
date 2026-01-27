@@ -247,7 +247,94 @@ elif st.session_state["pagina_atual"] == "ia_coach":
                 "role": "system", 
                 "content": f"Você é um treinador de corrida experiente e motivador. O contexto técnico do aluno é: {contexto}. Responda de forma curta."
             })
+# === NOVA PÁGINA: CADASTRAR NA AGENDA ===
+elif st.session_state["pagina_atual"] == "cadastro_agenda":
+    st.button("⬅ Voltar", on_click=voltar_home)
+    st.header("📅 Alimentar Agenda de Treinos")
+    
+    tab1, tab2 = st.tabs(["✍️ Manual", "📂 Upload de Arquivo"])
+    
+    # --- ABA 1: CADASTRO MANUAL ---
+    with tab1:
+        st.subheader("Adicionar um único treino")
+        with st.form("form_agenda_manual"):
+            data_treino = st.date_input("Data do Treino", date.today())
+            tipo_treino = st.selectbox("Tipo de Treino", 
+                ["Rodagem", "Tiro", "Longo", "Regenerativo", "Fortalecimento", "Descanso", "Outro"])
+            detalhes_treino = st.text_area("Detalhes (Ex: 10km leve Z2)", height=100)
+            
+            submit_manual = st.form_submit_button("Salvar na Agenda")
+            
+            if submit_manual:
+                spreadsheet = conectar_gsheets()
+                if spreadsheet:
+                    try:
+                        worksheet = spreadsheet.worksheet("Agenda")
+                        # Formata data para DD/MM/AAAA (padrão brasileiro)
+                        data_str = data_treino.strftime("%d/%m/%Y")
+                        
+                        nova_linha = [data_str, tipo_treino, detalhes_treino]
+                        worksheet.append_row(nova_linha)
+                        
+                        st.success(f"Treino de {tipo_treino} agendado para {data_str}!")
+                    except Exception as e:
+                        st.error(f"Erro ao salvar: {e}. Verifique se a aba 'Agenda' existe.")
 
+    # --- ABA 2: UPLOAD DE ARQUIVO ---
+    with tab2:
+        st.subheader("Carregar múltiplos treinos (CSV ou Excel)")
+        st.info("O arquivo deve ter as colunas: 'Data', 'Tipo', 'Detalhes'")
+        
+        uploaded_file = st.file_uploader("Escolha o arquivo", type=['csv', 'xlsx'])
+        
+        if uploaded_file is not None:
+            try:
+                # Lê o arquivo dependendo do tipo
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+                
+                # Normaliza os nomes das colunas (remove espaços e deixa titulo)
+                df.columns = df.columns.str.strip().str.title()
+                
+                # Verifica se as colunas necessárias existem
+                colunas_necessarias = ["Data", "Tipo", "Detalhes"]
+                if all(col in df.columns for col in colunas_necessarias):
+                    
+                    st.dataframe(df.head()) # Mostra prévia
+                    
+                    if st.button("Confirmar Importação"):
+                        spreadsheet = conectar_gsheets()
+                        if spreadsheet:
+                            worksheet = spreadsheet.worksheet("Agenda")
+                            
+                            # Barra de progresso visual
+                            progresso = st.progress(0)
+                            total = len(df)
+                            
+                            for index, row in df.iterrows():
+                                # Tratamento de data para garantir DD/MM/AAAA
+                                raw_date = row['Data']
+                                if isinstance(raw_date, pd.Timestamp):
+                                    data_formatada = raw_date.strftime("%d/%m/%Y")
+                                else:
+                                    # Tenta converter string ou deixa como está
+                                    try:
+                                        data_formatada = pd.to_datetime(raw_date).strftime("%d/%m/%Y")
+                                    except:
+                                        data_formatada = str(raw_date)
+
+                                linha = [data_formatada, row['Tipo'], row['Detalhes']]
+                                worksheet.append_row(linha)
+                                progresso.progress((index + 1) / total)
+                            
+                            st.success("✅ Importação concluída com sucesso!")
+                else:
+                    st.error(f"O arquivo precisa ter as colunas: {colunas_necessarias}")
+            
+            except Exception as e:
+                st.error(f"Erro ao processar arquivo: {e}")
         # Exibe mensagens
         for msg in st.session_state.messages:
             if msg["role"] != "system":
