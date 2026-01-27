@@ -11,6 +11,22 @@ st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centere
 
 st.markdown("""
 <style>
+    /* Remove a barra superior (GitHub, Settings, etc.) */
+    header {
+        visibility: hidden;
+    }
+    
+    /* Remove o rodapé padrão "Made with Streamlit" (opcional) */
+    footer {
+        visibility: hidden;
+    }
+
+    /* Ajusta o padding do topo para o app não ficar com um buraco em branco */
+    .block-container {
+        padding-top: 2rem;
+    }
+
+    /* Estilo dos Botões Grandes */
     .stButton > button {
         width: 100%;
         height: 80px;
@@ -18,6 +34,8 @@ st.markdown("""
         border-radius: 12px;
         margin-bottom: 10px;
     }
+
+    /* Estilo do Card de Destaque */
     .highlight-card {
         background-color: #f0f2f6;
         padding: 20px;
@@ -25,6 +43,8 @@ st.markdown("""
         border-left: 5px solid #ff4b4b;
         margin-bottom: 20px;
     }
+    
+    /* Estilos de Status */
     .status-done {
         color: green;
         font-weight: bold;
