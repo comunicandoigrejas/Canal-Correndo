@@ -4,7 +4,7 @@ from datetime import date
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from openai import OpenAI
-import pandas as pd # Biblioteca necessária para ler arquivos
+import pandas as pd
 
 # --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
@@ -25,61 +25,75 @@ st.markdown("""
         border-left: 5px solid #ff4b4b;
         margin-bottom: 20px;
     }
+    .status-done {
+        color: green;
+        font-weight: bold;
+    }
+    .status-pending {
+        color: orange;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FUNÇÕES DE CONEXÃO E DADOS ---
+# --- 2. GERENCIAMENTO DE ESTADO E NAVEGAÇÃO (A SOLUÇÃO DO CLIQUE ÚNICO) ---
+
+if "pagina_atual" not in st.session_state:
+    st.session_state["pagina_atual"] = "dashboard"
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+
+def navegar_para(pagina):
+    """Callback para navegação instantânea"""
+    st.session_state["pagina_atual"] = pagina
+
+def voltar_home():
+    """Callback para voltar"""
+    st.session_state["pagina_atual"] = "dashboard"
+
+# --- 3. CONEXÃO COM GOOGLE SHEETS ---
 
 def conectar_gsheets():
-    """Conecta ao Google Sheets usando os segredos do Streamlit"""
     try:
         if "gcp_service_account" not in st.secrets:
             st.warning("Segredos do Google não encontrados.")
             return None
-
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
-        # Abre a planilha principal
         return client.open("Running_Data")
     except Exception as e:
-        st.error(f"Erro ao conectar no Google Sheets: {e}")
+        st.error(f"Erro de conexão: {e}")
         return None
 
 def carregar_agenda_hoje():
-    """Busca na aba 'Agenda' do Google Sheets se há treino para hoje"""
     try:
         spreadsheet = conectar_gsheets()
         if spreadsheet:
             try:
                 worksheet = spreadsheet.worksheet("Agenda")
             except:
-                st.warning("Aba 'Agenda' não encontrada. Crie uma aba na planilha com colunas: Data, Tipo, Detalhes.")
                 return None
-
             treinos = worksheet.get_all_records()
-            hoje_str = date.today().strftime("%d/%m/%Y") 
-            
+            hoje_str = date.today().strftime("%d/%m/%Y")
             for treino in treinos:
-                # Converte para string para garantir a comparação
                 if str(treino['Data']) == hoje_str:
                     return treino
             return None
-    except Exception as e:
-        st.error(f"Erro ao ler agenda: {e}")
+    except:
         return None
 
 def carregar_contexto_ia():
-    """Lê o arquivo de texto com os treinos"""
     try:
         with open("treino_contexto.md", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        return "Aviso: Arquivo 'treino_contexto.md' não encontrado. A IA está sem contexto."
+        return "Aviso: Arquivo de contexto não encontrado."
 
-# --- 3. FUNÇÕES DE UTILIDADE ---
-
+# --- 4. TELA DE LOGIN ---
 def verificar_senha():
     SENHA_ACESSO = "run2026" 
     if st.session_state["password_input"] == SENHA_ACESSO:
@@ -87,41 +101,21 @@ def verificar_senha():
     else:
         st.error("Senha incorreta!")
 
-def navegar_para(pagina):
-    st.session_state["pagina_atual"] = pagina
-
-def voltar_home():
-    st.session_state["pagina_atual"] = "dashboard"
-
-# --- 4. INICIALIZAÇÃO DO ESTADO ---
-
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
-
-if "pagina_atual" not in st.session_state:
-    st.session_state["pagina_atual"] = "dashboard"
-
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-
-# --- 5. TELA DE LOGIN ---
 if not st.session_state["autenticado"]:
     st.title("🔒 Acesso Restrito")
-    st.text_input("Digite a senha de acesso:", type="password", key="password_input", on_change=verificar_senha)
+    st.text_input("Digite a senha:", type="password", key="password_input", on_change=verificar_senha)
     st.stop() 
 
-# --- 6. LÓGICA DE NAVEGAÇÃO ---
+# --- 5. ROTEAMENTO DE PÁGINAS ---
 
-# === PÁGINA: DASHBOARD (HOME) ===
+# === DASHBOARD ===
 if st.session_state["pagina_atual"] == "dashboard":
     st.title("🏃 Running Coach AI")
 
-    # Busca treino real
-    with st.spinner("Sincronizando agenda..."):
+    with st.spinner("Sincronizando..."):
         treino_hoje = carregar_agenda_hoje()
     
     st.subheader("📅 Status do Dia")
-    
     if treino_hoje:
         st.markdown(f"""
         <div class="highlight-card">
@@ -130,26 +124,95 @@ if st.session_state["pagina_atual"] == "dashboard":
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Nenhum treino agendado para hoje. Bom descanso! 💤")
+        st.info("Nenhum treino agendado para hoje. Descanso! 💤")
 
     st.markdown("---")
     
-    # Menu Grid Atualizado (3 colunas)
+    # MENU GRID COM CALLBACKS (ISSO RESOLVE O PROBLEMA DOS 2 CLIQUES)
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("📝 Registrar\nTreino"):
-            navegar_para("registro")
-        if st.button("📅 Agenda\nFutura"):
-            navegar_para("agenda")     
+        st.button("📝 Registrar\nTreino", on_click=navegar_para, args=("registro",))
+        st.button("📅 Agenda\nFutura", on_click=navegar_para, args=("agenda",))
     with col2:
-        if st.button("📊 Histórico\nResultados"):
-            navegar_para("historico")
-        if st.button("🤖 Adaptar\nTreino (IA)"):
-            navegar_para("ia_coach")
+        st.button("📊 Histórico\nResultados", on_click=navegar_para, args=("historico",))
+        st.button("🤖 Adaptar\nTreino (IA)", on_click=navegar_para, args=("ia_coach",))
     with col3:
-        if st.button("➕ Cadastrar\nNovos Treinos"):
-            navegar_para("cadastro_agenda")
+        st.button("➕ Cadastrar\nTreinos", on_click=navegar_para, args=("cadastro_agenda",))
+        # NOVO BOTÃO DE PROVAS
+        st.button("🏅 Provas\n& Metas", on_click=navegar_para, args=("provas",))
+
+# === PÁGINA: PROVAS (NOVA) ===
+elif st.session_state["pagina_atual"] == "provas":
+    st.button("⬅ Voltar", on_click=voltar_home)
+    st.header("🏅 Calendário de Provas")
+
+    spreadsheet = conectar_gsheets()
+    if spreadsheet:
+        try:
+            worksheet = spreadsheet.worksheet("Provas")
+            dados = worksheet.get_all_records()
+            
+            # --- SEÇÃO 1: VISUALIZAR PROVAS ---
+            if dados:
+                df = pd.DataFrame(dados)
+                # Formatação visual do status
+                def color_status(val):
+                    color = 'green' if val == 'Concluída' else 'orange'
+                    return f'color: {color}; font-weight: bold'
+                
+                st.dataframe(df.style.applymap(color_status, subset=['Status']), use_container_width=True)
+            else:
+                st.info("Nenhuma prova cadastrada.")
+                df = pd.DataFrame()
+
+            st.markdown("---")
+            
+            tab_add, tab_update = st.tabs(["➕ Nova Prova", "✏️ Atualizar Resultado"])
+
+            # --- ABA 1: CADASTRAR NOVA PROVA ---
+            with tab_add:
+                with st.form("nova_prova"):
+                    c1, c2 = st.columns(2)
+                    data_prova = c1.date_input("Data da Prova")
+                    nome_prova = c2.text_input("Nome da Prova")
+                    distancia_prova = c1.selectbox("Distância", ["5km", "10km", "15km", "21km", "42km", "Outra"])
+                    submit_prova = st.form_submit_button("Agendar Prova")
+                    
+                    if submit_prova:
+                        data_fmt = data_prova.strftime("%d/%m/%Y")
+                        # Ordem: Data, Nome, Distancia, Status, Tempo
+                        worksheet.append_row([data_fmt, nome_prova, distancia_prova, "Pendente", "-"])
+                        st.success("Prova agendada!")
+                        st.rerun() # Atualiza a tabela na hora
+
+            # --- ABA 2: ATUALIZAR RESULTADO ---
+            with tab_update:
+                if not df.empty:
+                    # Cria uma lista de provas pendentes para selecionar
+                    provas_nomes = df['Nome'].tolist()
+                    prova_selecionada = st.selectbox("Selecione a Prova", provas_nomes)
+                    
+                    c1, c2 = st.columns(2)
+                    foi_realizada = c1.checkbox("✅ Prova Realizada?")
+                    tempo_realizado = c2.text_input("Tempo Oficial (ex: 01:55:00)")
+                    
+                    if st.button("Salvar Resultado"):
+                        # Lógica para encontrar a linha e atualizar
+                        cell = worksheet.find(prova_selecionada)
+                        if cell:
+                            linha = cell.row
+                            # Atualiza colunas D (Status) e E (Tempo)
+                            status = "Concluída" if foi_realizada else "Pendente"
+                            worksheet.update_cell(linha, 4, status) # Coluna 4
+                            worksheet.update_cell(linha, 5, tempo_realizado) # Coluna 5
+                            st.success("Resultado atualizado!")
+                            st.rerun()
+                else:
+                    st.warning("Cadastre uma prova primeiro.")
+
+        except Exception as e:
+            st.error(f"Aba 'Provas' não encontrada ou erro de conexão: {e}. Crie a aba na planilha com cabeçalho: Data, Nome, Distancia, Status, Tempo")
 
 # === PÁGINA: REGISTRAR TREINO ===
 elif st.session_state["pagina_atual"] == "registro":
@@ -161,176 +224,84 @@ elif st.session_state["pagina_atual"] == "registro":
         distancia = st.number_input("Distância (km)", min_value=0.0, step=0.1, format="%.2f")
         tempo_input = st.text_input("Tempo Total (ex: 00:45:00)", value="00:00:00")
         percepcao = st.slider("Cansaço (0=Leve, 10=Exausto)", 0, 10, 5)
-        obs = st.text_area("Sensações / Observações")
-        
-        submitted = st.form_submit_button("Salvar Registro")
-        
-        if submitted:
-            spreadsheet = conectar_gsheets()
-            if spreadsheet:
-                try:
-                    sheet = spreadsheet.sheet1
-                    data_str = data_realizada.strftime("%d/%m/%Y")
-                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    nova_linha = [data_str, distancia, tempo_input, percepcao, obs, timestamp]
-                    sheet.append_row(nova_linha)
-                    st.success("✅ Treino salvo com sucesso na nuvem!")
-                    st.balloons()
-                except Exception as e:
-                    st.error(f"Erro ao gravar dados: {e}")
+        obs = st.text_area("Sensações")
+        if st.form_submit_button("Salvar Registro"):
+            ss = conectar_gsheets()
+            if ss:
+                ss.sheet1.append_row([data_realizada.strftime("%d/%m/%Y"), distancia, tempo_input, percepcao, obs, str(datetime.datetime.now())])
+                st.success("Salvo!")
 
 # === PÁGINA: AGENDA ===
 elif st.session_state["pagina_atual"] == "agenda":
     st.button("⬅ Voltar", on_click=voltar_home)
-    st.header("📅 Próximos Treinos")
-    
-    spreadsheet = conectar_gsheets()
-    if spreadsheet:
+    st.header("📅 Agenda Futura")
+    ss = conectar_gsheets()
+    if ss:
         try:
-            worksheet = spreadsheet.worksheet("Agenda")
-            dados = worksheet.get_all_records()
-            if dados:
-                df = pd.DataFrame(dados)
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("A agenda está vazia.")
-        except:
-            st.error("Aba 'Agenda' não encontrada.")
+            df = pd.DataFrame(ss.worksheet("Agenda").get_all_records())
+            st.dataframe(df, use_container_width=True)
+        except: st.error("Erro ao ler Agenda.")
+
+# === PÁGINA: CADASTRO DE TREINOS ===
+elif st.session_state["pagina_atual"] == "cadastro_agenda":
+    st.button("⬅ Voltar", on_click=voltar_home)
+    st.header("📅 Alimentar Agenda")
+    tab1, tab2 = st.tabs(["Manual", "Upload"])
+    
+    with tab1:
+        with st.form("manual"):
+            dt = st.date_input("Data")
+            tp = st.selectbox("Tipo", ["Rodagem", "Tiro", "Longo", "Descanso"])
+            det = st.text_area("Detalhes")
+            if st.form_submit_button("Salvar"):
+                ss = conectar_gsheets()
+                if ss:
+                    ss.worksheet("Agenda").append_row([dt.strftime("%d/%m/%Y"), tp, det])
+                    st.success("Adicionado!")
+    
+    with tab2:
+        up = st.file_uploader("Arquivo CSV/Excel", type=['csv','xlsx'])
+        if up and st.button("Importar"):
+            df = pd.read_csv(up) if up.name.endswith('.csv') else pd.read_excel(up)
+            ss = conectar_gsheets()
+            if ss:
+                ws = ss.worksheet("Agenda")
+                for _, row in df.iterrows():
+                    ws.append_row([str(row['Data']), row['Tipo'], row['Detalhes']])
+                st.success("Importado!")
 
 # === PÁGINA: HISTÓRICO ===
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=voltar_home)
-    st.header("📊 Histórico de Execução")
-    
-    spreadsheet = conectar_gsheets()
-    if spreadsheet:
-        try:
-            sheet = spreadsheet.sheet1
-            dados = sheet.get_all_records()
-            if dados:
-                df = pd.DataFrame(dados)
-                st.dataframe(df, use_container_width=True)
-                if "Distancia" in df.columns:
-                     st.line_chart(df, x="Data", y="Distancia")
-            else:
-                st.info("Nenhum registro encontrado ainda.")
-        except Exception as e:
-            st.error(f"Erro ao carregar histórico: {e}")
+    st.header("📊 Histórico")
+    ss = conectar_gsheets()
+    if ss:
+        df = pd.DataFrame(ss.sheet1.get_all_records())
+        if not df.empty:
+            st.dataframe(df)
+            if "Distancia" in df.columns:
+                # Tratamento simples para garantir números no gráfico
+                df["Distancia"] = pd.to_numeric(df["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
+                st.line_chart(df, x="Data", y="Distancia")
 
 # === PÁGINA: IA COACH ===
 elif st.session_state["pagina_atual"] == "ia_coach":
     st.button("⬅ Voltar", on_click=voltar_home)
     st.header("🤖 Treinador IA")
-    
     if "openai_key" in st.secrets:
         client = OpenAI(api_key=st.secrets["openai_key"])
-        
         if not st.session_state["messages"]:
-            contexto = carregar_contexto_ia()
-            st.session_state["messages"].append({
-                "role": "system", 
-                "content": f"Você é um treinador de corrida experiente. O contexto técnico do aluno é: {contexto}. Responda de forma curta."
-            })
-
-        for msg in st.session_state.messages:
-            if msg["role"] != "system":
-                st.chat_message(msg["role"]).write(msg["content"])
-
-        if prompt := st.chat_input("Dúvida sobre o treino?"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            st.chat_message("user").write(prompt)
-
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-4o", 
-                    messages=st.session_state.messages
-                )
-                msg_resposta = response.choices[0].message.content
-                st.session_state.messages.append({"role": "assistant", "content": msg_resposta})
-                st.chat_message("assistant").write(msg_resposta)
-            except Exception as e:
-                st.error(f"Erro na API OpenAI: {e}")
-    else:
-        st.warning("⚠️ Chave da OpenAI não encontrada.")
-
-# === PÁGINA: CADASTRAR NA AGENDA (NOVA) ===
-elif st.session_state["pagina_atual"] == "cadastro_agenda":
-    st.button("⬅ Voltar", on_click=voltar_home)
-    st.header("📅 Alimentar Agenda de Treinos")
-    
-    tab1, tab2 = st.tabs(["✍️ Manual", "📂 Upload de Arquivo"])
-    
-    # --- ABA 1: MANUAL ---
-    with tab1:
-        st.subheader("Adicionar um único treino")
-        with st.form("form_agenda_manual"):
-            data_treino = st.date_input("Data do Treino", date.today())
-            tipo_treino = st.selectbox("Tipo de Treino", 
-                ["Rodagem", "Tiro", "Longo", "Regenerativo", "Fortalecimento", "Descanso", "Outro"])
-            detalhes_treino = st.text_area("Detalhes (Ex: 10km leve Z2)", height=100)
-            
-            submit_manual = st.form_submit_button("Salvar na Agenda")
-            
-            if submit_manual:
-                spreadsheet = conectar_gsheets()
-                if spreadsheet:
-                    try:
-                        worksheet = spreadsheet.worksheet("Agenda")
-                        data_str = data_treino.strftime("%d/%m/%Y")
-                        
-                        nova_linha = [data_str, tipo_treino, detalhes_treino]
-                        worksheet.append_row(nova_linha)
-                        st.success(f"Treino de {tipo_treino} agendado para {data_str}!")
-                    except Exception as e:
-                        st.error(f"Erro ao salvar. Verifique se a aba 'Agenda' existe na planilha.")
-
-    # --- ABA 2: UPLOAD ---
-    with tab2:
-        st.subheader("Carregar múltiplos treinos (Excel/CSV)")
-        st.info("Colunas obrigatórias: Data, Tipo, Detalhes")
+            ctx = carregar_contexto_ia()
+            st.session_state["messages"].append({"role": "system", "content": f"Treinador de corrida. Contexto: {ctx}"})
         
-        uploaded_file = st.file_uploader("Escolha o arquivo", type=['csv', 'xlsx'])
-        
-        if uploaded_file is not None:
-            try:
-                # CORREÇÃO AQUI: Verificando se é CSV ou Excel e lendo corretamente
-                if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file)
-                else:
-                    df = pd.read_excel(uploaded_file)
-                
-                # Limpa nomes das colunas (tira espaços e coloca maiúscula)
-                df.columns = df.columns.str.strip().str.title()
-                colunas_necessarias = ["Data", "Tipo", "Detalhes"]
-                
-                if all(col in df.columns for col in colunas_necessarias):
-                    st.dataframe(df.head())
-                    
-                    if st.button("Confirmar Importação"):
-                        spreadsheet = conectar_gsheets()
-                        if spreadsheet:
-                            worksheet = spreadsheet.worksheet("Agenda")
-                            progresso = st.progress(0)
-                            total = len(df)
-                            
-                            for index, row in df.iterrows():
-                                # Tratamento de Data
-                                raw_date = row['Data']
-                                try:
-                                    if isinstance(raw_date, (pd.Timestamp, datetime.date, datetime.datetime)):
-                                        data_fmt = raw_date.strftime("%d/%m/%Y")
-                                    else:
-                                        data_fmt = pd.to_datetime(raw_date, dayfirst=True).strftime("%d/%m/%Y")
-                                except:
-                                    data_fmt = str(raw_date)
-
-                                linha = [data_fmt, row['Tipo'], row['Detalhes']]
-                                worksheet.append_row(linha)
-                                progresso.progress((index + 1) / total)
-                            
-                            st.success("✅ Importação concluída!")
-                else:
-                    st.error(f"Erro: O arquivo precisa ter as colunas {colunas_necessarias}")
+        for m in st.session_state.messages:
+            if m["role"] != "system": st.chat_message(m["role"]).write(m["content"])
             
-            except Exception as e:
-                st.error(f"Erro ao processar arquivo: {e}")
+        if p := st.chat_input("Dúvida?"):
+            st.session_state.messages.append({"role": "user", "content": p})
+            st.chat_message("user").write(p)
+            try:
+                r = client.chat.completions.create(model="gpt-4o", messages=st.session_state.messages)
+                st.session_state.messages.append({"role": "assistant", "content": r.choices[0].message.content})
+                st.chat_message("assistant").write(r.choices[0].message.content)
+            except Exception as e: st.error(e)
