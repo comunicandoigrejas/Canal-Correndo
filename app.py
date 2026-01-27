@@ -137,7 +137,8 @@ if st.session_state["pagina_atual"] == "dashboard":
     st.markdown("---")
     
     # Menu Grid
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3) # <--- Mudei para 3 colunas para caber tudo
+    
     with col1:
         if st.button("📝 Registrar\nTreino"):
             navegar_para("registro")
@@ -148,6 +149,10 @@ if st.session_state["pagina_atual"] == "dashboard":
             navegar_para("historico")
         if st.button("🤖 Adaptar\nTreino (IA)"):
             navegar_para("ia_coach")
+    with col3:
+        # NOVO BOTÃO AQUI
+        if st.button("➕ Cadastrar\nNovos Treinos"):
+            navegar_para("cadastro_agenda")
 
 # === PÁGINA: REGISTRAR TREINO ===
 elif st.session_state["pagina_atual"] == "registro":
