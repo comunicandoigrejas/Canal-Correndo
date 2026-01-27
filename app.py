@@ -4,7 +4,7 @@ from datetime import date
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from openai import OpenAI
-import pandas as pd
+import pandas as pd # Essencial para ler arquivos Excel/CSV
 
 # --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
@@ -52,19 +52,16 @@ def carregar_agenda_hoje():
     try:
         spreadsheet = conectar_gsheets()
         if spreadsheet:
-            # Tenta acessar a aba específica 'Agenda'
             try:
                 worksheet = spreadsheet.worksheet("Agenda")
             except:
-                st.warning("Aba 'Agenda' não encontrada na planilha. Crie uma aba com colunas: Data, Tipo, Detalhes.")
+                st.warning("Aba 'Agenda' não encontrada. Crie uma aba na planilha com colunas: Data, Tipo, Detalhes.")
                 return None
 
             treinos = worksheet.get_all_records()
-            # Formato brasileiro para comparação: DD/MM/AAAA
             hoje_str = date.today().strftime("%d/%m/%Y") 
             
             for treino in treinos:
-                # Converte a data da planilha para string para comparar
                 if str(treino['Data']) == hoje_str:
                     return treino
             return None
@@ -132,12 +129,12 @@ if st.session_state["pagina_atual"] == "dashboard":
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Nenhum treino agendado para hoje (verifique a aba 'Agenda' ou a data). Bom descanso! 💤")
+        st.info("Nenhum treino agendado para hoje. Bom descanso! 💤")
 
     st.markdown("---")
     
-    # Menu Grid
-    col1, col2, col3 = st.columns(3) # <--- Mudei para 3 colunas para caber tudo
+    # Menu Grid Atualizado (3 colunas)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("📝 Registrar\nTreino"):
@@ -150,7 +147,6 @@ if st.session_state["pagina_atual"] == "dashboard":
         if st.button("🤖 Adaptar\nTreino (IA)"):
             navegar_para("ia_coach")
     with col3:
-        # NOVO BOTÃO AQUI
         if st.button("➕ Cadastrar\nNovos Treinos"):
             navegar_para("cadastro_agenda")
 
@@ -172,21 +168,15 @@ elif st.session_state["pagina_atual"] == "registro":
             spreadsheet = conectar_gsheets()
             if spreadsheet:
                 try:
-                    # Usa a primeira aba (padrão) para salvar registros
                     sheet = spreadsheet.sheet1
-                    
                     data_str = data_realizada.strftime("%d/%m/%Y")
                     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
                     nova_linha = [data_str, distancia, tempo_input, percepcao, obs, timestamp]
-                    
                     sheet.append_row(nova_linha)
                     st.success("✅ Treino salvo com sucesso na nuvem!")
                     st.balloons()
                 except Exception as e:
                     st.error(f"Erro ao gravar dados: {e}")
-            else:
-                st.error("Não foi possível conectar à planilha.")
 
 # === PÁGINA: AGENDA ===
 elif st.session_state["pagina_atual"] == "agenda":
@@ -214,17 +204,12 @@ elif st.session_state["pagina_atual"] == "historico":
     spreadsheet = conectar_gsheets()
     if spreadsheet:
         try:
-            # Pega dados da aba de registros (sheet1)
             sheet = spreadsheet.sheet1
             dados = sheet.get_all_records()
             if dados:
                 df = pd.DataFrame(dados)
                 st.dataframe(df, use_container_width=True)
-                
-                # Exemplo simples de gráfico se tiver a coluna Distancia
                 if "Distancia" in df.columns:
-                     # Limpeza básica para garantir que é número
-                     # df["Distancia"] = pd.to_numeric(df["Distancia"], errors='coerce')
                      st.line_chart(df, x="Data", y="Distancia")
             else:
                 st.info("Nenhum registro encontrado ainda.")
@@ -239,22 +224,42 @@ elif st.session_state["pagina_atual"] == "ia_coach":
     if "openai_key" in st.secrets:
         client = OpenAI(api_key=st.secrets["openai_key"])
         
-        # Inicializa Chat com Contexto
         if not st.session_state["messages"]:
             contexto = carregar_contexto_ia()
-            # Adiciona prompt do sistema (invisível ao usuário)
             st.session_state["messages"].append({
                 "role": "system", 
-                "content": f"Você é um treinador de corrida experiente e motivador. O contexto técnico do aluno é: {contexto}. Responda de forma curta."
+                "content": f"Você é um treinador de corrida experiente. O contexto técnico do aluno é: {contexto}. Responda de forma curta."
             })
-# === NOVA PÁGINA: CADASTRAR NA AGENDA ===
+
+        for msg in st.session_state.messages:
+            if msg["role"] != "system":
+                st.chat_message(msg["role"]).write(msg["content"])
+
+        if prompt := st.chat_input("Dúvida sobre o treino?"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.chat_message("user").write(prompt)
+
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o", 
+                    messages=st.session_state.messages
+                )
+                msg_resposta = response.choices[0].message.content
+                st.session_state.messages.append({"role": "assistant", "content": msg_resposta})
+                st.chat_message("assistant").write(msg_resposta)
+            except Exception as e:
+                st.error(f"Erro na API OpenAI: {e}")
+    else:
+        st.warning("⚠️ Chave da OpenAI não encontrada.")
+
+# === PÁGINA: CADASTRAR NA AGENDA (NOVA) ===
 elif st.session_state["pagina_atual"] == "cadastro_agenda":
     st.button("⬅ Voltar", on_click=voltar_home)
     st.header("📅 Alimentar Agenda de Treinos")
     
     tab1, tab2 = st.tabs(["✍️ Manual", "📂 Upload de Arquivo"])
     
-    # --- ABA 1: CADASTRO MANUAL ---
+    # --- ABA 1: MANUAL ---
     with tab1:
         st.subheader("Adicionar um único treino")
         with st.form("form_agenda_manual"):
@@ -270,91 +275,22 @@ elif st.session_state["pagina_atual"] == "cadastro_agenda":
                 if spreadsheet:
                     try:
                         worksheet = spreadsheet.worksheet("Agenda")
-                        # Formata data para DD/MM/AAAA (padrão brasileiro)
                         data_str = data_treino.strftime("%d/%m/%Y")
                         
                         nova_linha = [data_str, tipo_treino, detalhes_treino]
                         worksheet.append_row(nova_linha)
-                        
                         st.success(f"Treino de {tipo_treino} agendado para {data_str}!")
                     except Exception as e:
-                        st.error(f"Erro ao salvar: {e}. Verifique se a aba 'Agenda' existe.")
+                        st.error(f"Erro ao salvar. Verifique se a aba 'Agenda' existe na planilha.")
 
-    # --- ABA 2: UPLOAD DE ARQUIVO ---
+    # --- ABA 2: UPLOAD ---
     with tab2:
-        st.subheader("Carregar múltiplos treinos (CSV ou Excel)")
-        st.info("O arquivo deve ter as colunas: 'Data', 'Tipo', 'Detalhes'")
+        st.subheader("Carregar múltiplos treinos (Excel/CSV)")
+        st.info("Colunas obrigatórias: Data, Tipo, Detalhes")
         
         uploaded_file = st.file_uploader("Escolha o arquivo", type=['csv', 'xlsx'])
         
         if uploaded_file is not None:
             try:
-                # Lê o arquivo dependendo do tipo
                 if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file)
-                else:
-                    df = pd.read_excel(uploaded_file)
-                
-                # Normaliza os nomes das colunas (remove espaços e deixa titulo)
-                df.columns = df.columns.str.strip().str.title()
-                
-                # Verifica se as colunas necessárias existem
-                colunas_necessarias = ["Data", "Tipo", "Detalhes"]
-                if all(col in df.columns for col in colunas_necessarias):
-                    
-                    st.dataframe(df.head()) # Mostra prévia
-                    
-                    if st.button("Confirmar Importação"):
-                        spreadsheet = conectar_gsheets()
-                        if spreadsheet:
-                            worksheet = spreadsheet.worksheet("Agenda")
-                            
-                            # Barra de progresso visual
-                            progresso = st.progress(0)
-                            total = len(df)
-                            
-                            for index, row in df.iterrows():
-                                # Tratamento de data para garantir DD/MM/AAAA
-                                raw_date = row['Data']
-                                if isinstance(raw_date, pd.Timestamp):
-                                    data_formatada = raw_date.strftime("%d/%m/%Y")
-                                else:
-                                    # Tenta converter string ou deixa como está
-                                    try:
-                                        data_formatada = pd.to_datetime(raw_date).strftime("%d/%m/%Y")
-                                    except:
-                                        data_formatada = str(raw_date)
-
-                                linha = [data_formatada, row['Tipo'], row['Detalhes']]
-                                worksheet.append_row(linha)
-                                progresso.progress((index + 1) / total)
-                            
-                            st.success("✅ Importação concluída com sucesso!")
-                else:
-                    st.error(f"O arquivo precisa ter as colunas: {colunas_necessarias}")
-            
-            except Exception as e:
-                st.error(f"Erro ao processar arquivo: {e}")
-        # Exibe mensagens
-        for msg in st.session_state.messages:
-            if msg["role"] != "system":
-                st.chat_message(msg["role"]).write(msg["content"])
-
-        # Input
-        if prompt := st.chat_input("Dúvida sobre o treino?"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            st.chat_message("user").write(prompt)
-
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-4o", 
-                    messages=st.session_state.messages
-                )
-                msg_resposta = response.choices[0].message.content
-                
-                st.session_state.messages.append({"role": "assistant", "content": msg_resposta})
-                st.chat_message("assistant").write(msg_resposta)
-            except Exception as e:
-                st.error(f"Erro na API OpenAI: {e}")
-    else:
-        st.warning("⚠️ Chave da OpenAI não encontrada. Adicione 'openai_key' ao secrets.toml.")
+                    df = pd.read_csv(uploaded_
