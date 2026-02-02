@@ -24,7 +24,6 @@ st.markdown("""
         margin-bottom: 10px;
     }
     
-    /* Botão de Admin diferenciado */
     .admin-btn > button {
         background-color: #31333F;
         color: white;
@@ -43,7 +42,6 @@ st.markdown("""
         color: #31333F !important;
     }
     
-    /* Estilo do Aviso/Mensagem */
     .message-card {
         background-color: #fff3cd;
         padding: 15px;
@@ -52,9 +50,21 @@ st.markdown("""
         margin-bottom: 20px;
         color: #856404 !important;
     }
+
+    /* --- CORREÇÃO DE TABELA (NOVO) --- */
+    /* Força as colunas 1 (Data) e 2 (Tipo) a não quebrarem linha */
+    [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1),
+    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
+        white-space: nowrap !important;
+        width: 1%; /* Macete: ocupa apenas o espaço necessário para o texto, nem mais nem menos */
+    }
+    
+    /* Garante que a tabela use 100% da largura disponível */
+    [data-testid="stTable"] table {
+        width: 100% !important;
+    }
 </style>
 """, unsafe_allow_html=True)
-
 # --- 2. GERENCIAMENTO DE SESSÃO ---
 
 if "pagina_atual" not in st.session_state:
