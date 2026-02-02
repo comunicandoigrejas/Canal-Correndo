@@ -52,26 +52,23 @@ st.markdown("""
         color: #856404 !important;
     }
 
-    /* --- CORREÇÃO DE TABELA (DEFINITIVA - AJUSTE USUÁRIO) --- */
+    /* --- CORREÇÃO DE TABELA (AGENDA) --- */
     
-    /* Coluna 1 (Data): Força largura mínima de 15px */
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) {
         min-width: 15px !important;
         white-space: nowrap !important;
     }
     
-    /* Coluna 2 (Tipo): Força largura mínima de 30px */
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
         min-width: 30px !important;
         white-space: nowrap !important; 
     }
-    /* Coluna 3 (Detalhes): Força largura mínima de 130px */
+
     [data-testid="stTable"] th:nth-child(3), [data-testid="stTable"] td:nth-child(3) {
         min-width: 130px !important;
         white-space: nowrap !important; 
     }
     
-    /* Alinha o texto da tabela no topo para facilitar a leitura */
     [data-testid="stTable"] td {
         vertical-align: top !important;
     }
@@ -109,15 +106,19 @@ def verificar_login(usuario, senha):
     if ss:
         try:
             ws = ss.worksheet("Usuarios")
-            for u in ws.get_all_records():
-                if str(u['Usuario']) == usuario and str(u['Senha']) == senha:
+            records = ws.get_all_records()
+            for u in records:
+                u_planilha = str(u['Usuario']).strip()
+                s_planilha = str(u['Senha']).strip()
+                
+                if u_planilha == usuario and s_planilha == senha:
                     if str(u.get('Status', 'Ativo')) == 'Bloqueado': return "BLOQUEADO", None, None
-                    # Pega Modalidade (padrao Corrida se vazio)
-                    modalidade = u.get('Modalidade', 'Corrida')
-                    if modalidade == "": modalidade = "Corrida"
-                    return u['Nome'], u.get('Funcao', 'aluno'), modalidade
+                    modalidade_raw = str(u.get('Modalidade', 'Corrida')).strip()
+                    return u['Nome'], u.get('Funcao', 'aluno'), modalidade_raw
             return None, None, None
-        except: return None, None, None
+        except Exception as e: 
+            st.error(f"Erro no Login: {e}")
+            return None, None, None
     return None, None, None
 
 def carregar_mensagens_usuario(user_id):
@@ -125,11 +126,9 @@ def carregar_mensagens_usuario(user_id):
     if ss:
         try:
             ws = ss.worksheet("Mensagens")
-            # Usa get_all_records garantindo que lê cabeçalhos
             records = ws.get_all_records()
             for row in reversed(records):
-                # .get evita o erro se a coluna nao existir
-                dest = row.get('Destinatario', 'TODOS')
+                dest = str(row.get('Destinatario', 'TODOS')).strip()
                 if dest in ['TODOS', user_id]:
                     msgs.append(row)
                     if len(msgs) >= 3: break
@@ -146,8 +145,8 @@ def carregar_contexto_ia():
 if st.session_state["usuario_atual"] is None:
     st.title("🏃 Running Coach")
     with st.form("login"):
-        u = st.text_input("Usuário")
-        s = st.text_input("Senha", type="password")
+        u = st.text_input("Usuário").strip()
+        s = st.text_input("Senha", type="password").strip()
         if st.form_submit_button("Entrar"):
             nome, funcao, modalidade = verificar_login(u, s)
             if nome == "BLOQUEADO": st.error("Bloqueado.")
@@ -166,7 +165,8 @@ if st.session_state["usuario_atual"] is None:
 USER = st.session_state["usuario_atual"]
 NOME = st.session_state["nome_usuario"]
 ADMIN = st.session_state["is_admin"]
-MODALIDADE = st.session_state["modalidade"] 
+MODALIDADE = st.session_state["modalidade"]
+IS_MUSCULACAO = "muscula" in str(MODALIDADE).lower()
 
 # === DASHBOARD ===
 if st.session_state["pagina_atual"] == "dashboard":
@@ -174,17 +174,15 @@ if st.session_state["pagina_atual"] == "dashboard":
     c1.title(f"Olá, {NOME}!")
     if c2.button("Sair"): logout(); st.rerun()
 
-    # Avisos (CORREÇÃO AQUI: USANDO .get PARA EVITAR O ERRO)
     try:
         mensagens = carregar_mensagens_usuario(USER)
         for m in mensagens:
-            tipo_msg = m.get('Tipo', 'Aviso') # Se nao achar 'Tipo', usa 'Aviso'
-            texto_msg = m.get('Mensagem', '') # Se nao achar 'Mensagem', usa vazio
-            st.markdown(f"<div class='message-card'><strong>🔔 {tipo_msg}:</strong> {texto_msg}</div>", unsafe_allow_html=True)
-    except Exception as e:
-        st.error("Erro ao ler mensagens. Verifique os cabeçalhos da aba 'Mensagens'.")
+            tp = m.get('Tipo', 'Aviso')
+            msg = m.get('Mensagem', '')
+            if msg:
+                st.markdown(f"<div class='message-card'><strong>🔔 {tp}:</strong> {msg}</div>", unsafe_allow_html=True)
+    except: pass
 
-    # Treino Hoje
     treino = None
     ss = conectar_gsheets()
     if ss:
@@ -203,7 +201,6 @@ if st.session_state["pagina_atual"] == "dashboard":
 
     st.markdown("---")
     
-    # MENU INTELIGENTE
     c1, c2, c3 = st.columns(3)
     with c1:
         st.button("📝 Registrar", on_click=navegar_para, args=("registro",))
@@ -212,7 +209,7 @@ if st.session_state["pagina_atual"] == "dashboard":
         st.button("📊 Histórico", on_click=navegar_para, args=("historico",))
         st.button("🤖 IA Coach", on_click=navegar_para, args=("ia_coach",))
     with c3:
-        if MODALIDADE == "Corrida":
+        if not IS_MUSCULACAO:
             st.button("🏅 Provas", on_click=navegar_para, args=("provas",))
         
         if ADMIN:
@@ -225,9 +222,8 @@ elif st.session_state["pagina_atual"] == "registro":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📝 Registrar Treino")
     
-    # SE FOR MUSCULAÇÃO
-    if MODALIDADE == "Musculacao":
-        st.info("Confirme a realização do seu treino de hoje.")
+    if IS_MUSCULACAO:
+        st.info("Confirme a realização do seu treino de força.")
         with st.form("reg_musc"):
             dt = st.date_input("Data", date.today())
             obs = st.text_area("Observações (Cargas, sensações, etc)")
@@ -239,7 +235,6 @@ elif st.session_state["pagina_atual"] == "registro":
                     st.success("Treino de Musculação Registrado!")
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
 
-    # SE FOR CORRIDA
     else:
         with st.form("reg_run"):
             d = st.date_input("Data", date.today())
@@ -290,18 +285,47 @@ elif st.session_state["pagina_atual"] == "agenda":
             if not dfu.empty: st.table(dfu)
             else: st.info("Sem treinos.")
 
+# === HISTÓRICO INTELIGENTE ===
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📊 Histórico")
+    st.header("📊 Histórico de Treinos")
     ss = conectar_gsheets()
     if ss:
-        df = pd.DataFrame(ss.worksheet("Registros").get_all_records())
-        if not df.empty and 'ID_Usuario' in df.columns:
-            dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
-            st.dataframe(dfu, use_container_width=True)
-            if MODALIDADE == "Corrida" and "Distancia" in dfu.columns:
-                dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
-                st.line_chart(dfu, x="Data", y="Distancia")
+        # Carrega dados
+        try:
+            df = pd.DataFrame(ss.worksheet("Registros").get_all_records())
+            
+            if not df.empty and 'ID_Usuario' in df.columns:
+                # Filtra usuário
+                dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
+                
+                if not dfu.empty:
+                    # LÓGICA PARA MUSCULAÇÃO (Visualização Limpa)
+                    if IS_MUSCULACAO:
+                        # Mostra contador de treinos
+                        st.metric("Total de Treinos", len(dfu))
+                        
+                        # Filtra apenas colunas relevantes
+                        # Verifica se as colunas existem antes de selecionar
+                        colunas_musculacao = [c for c in ["Data", "Observacoes"] if c in dfu.columns]
+                        df_view = dfu[colunas_musculacao]
+                        
+                        # Exibe tabela sem os zeros de km/tempo
+                        st.dataframe(df_view, use_container_width=True, hide_index=True)
+                    
+                    # LÓGICA PARA CORRIDA (Completa)
+                    else:
+                        st.dataframe(dfu, use_container_width=True)
+                        if "Distancia" in dfu.columns:
+                            dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
+                            st.line_chart(dfu, x="Data", y="Distancia")
+                else:
+                    st.info("Nenhum histórico encontrado.")
+            else:
+                st.info("Nenhum registro encontrado.")
+        except Exception as e:
+            st.error(f"Erro ao carregar histórico: {e}")
+
 
 elif st.session_state["pagina_atual"] == "provas":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
