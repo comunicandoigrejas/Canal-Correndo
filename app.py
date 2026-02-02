@@ -53,11 +53,6 @@ st.markdown("""
     }
 
     /* --- CORREÇÃO DE TABELA (DEFINITIVA) --- */
-    /* Coluna 1 (Data): Força largura mínima de 20px */
-    [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) {
-        min-width: 20px !important;
-        white-space: nowrap !important;
-    }
     
     /* Coluna 2 (Tipo): Força largura mínima de 90px */
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
