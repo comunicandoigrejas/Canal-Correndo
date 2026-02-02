@@ -254,105 +254,11 @@ elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.title("⚙️ Painel Admin")
-    t1, t2, t3 = st.tabs(["Treinos", "Alunos", "Mensagem"])
+    
+    # ATUALIZAÇÃO: ADICIONADA A ABA 4 (Monitorar)
+    t1, t2, t3, t4 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar"])
+    
     with t1:
         with st.form("at"):
             ss = conectar_gsheets()
-            l = [r['Usuario'] for r in ss.worksheet("Usuarios").get_all_records()] if ss else []
-            u = st.selectbox("Aluno", l); dt = st.date_input("Data"); tp = st.text_input("Tipo/Treino"); det = st.text_area("Detalhes")
-            if st.form_submit_button("Agendar"): ss.worksheet("Agenda").append_row([u, dt.strftime("%d/%m/%Y"), tp, det]); st.success("Feito!")
-    with t2:
-        if ss:
-            ws = ss.worksheet("Usuarios"); df = pd.DataFrame(ws.get_all_records())
-            st.dataframe(df)
-            with st.form("sts"):
-                us = st.selectbox("Aluno", df['Usuario'].tolist()); ns = st.selectbox("Status", ["Ativo", "Bloqueado"])
-                if st.form_submit_button("Atualizar"): 
-                    c = ws.find(us); ws.update_cell(c.row, 5, ns); st.success("Atualizado!"); st.rerun()
-    with t3:
-        with st.form("msg"):
-            us = st.text_input("Destinatario (Login ou TODOS)"); tx = st.text_area("Msg"); tp = st.selectbox("Tipo", ["Aviso", "Motivacional"])
-            if st.form_submit_button("Enviar"): ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp]); st.success("Enviado!")
-
-elif st.session_state["pagina_atual"] == "agenda":
-    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📅 Agenda")
-    ss = conectar_gsheets()
-    if ss:
-        df = pd.DataFrame(ss.worksheet("Agenda").get_all_records())
-        if not df.empty and 'ID_Usuario' in df.columns:
-            dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
-            if not dfu.empty: st.table(dfu)
-            else: st.info("Sem treinos.")
-
-# === HISTÓRICO INTELIGENTE ===
-elif st.session_state["pagina_atual"] == "historico":
-    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📊 Histórico de Treinos")
-    ss = conectar_gsheets()
-    if ss:
-        # Carrega dados
-        try:
-            df = pd.DataFrame(ss.worksheet("Registros").get_all_records())
-            
-            if not df.empty and 'ID_Usuario' in df.columns:
-                # Filtra usuário
-                dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
-                
-                if not dfu.empty:
-                    # LÓGICA PARA MUSCULAÇÃO (Visualização Limpa)
-                    if IS_MUSCULACAO:
-                        # Mostra contador de treinos
-                        st.metric("Total de Treinos", len(dfu))
-                        
-                        # Filtra apenas colunas relevantes
-                        # Verifica se as colunas existem antes de selecionar
-                        colunas_musculacao = [c for c in ["Data", "Observacoes"] if c in dfu.columns]
-                        df_view = dfu[colunas_musculacao]
-                        
-                        # Exibe tabela sem os zeros de km/tempo
-                        st.dataframe(df_view, use_container_width=True, hide_index=True)
-                    
-                    # LÓGICA PARA CORRIDA (Completa)
-                    else:
-                        st.dataframe(dfu, use_container_width=True)
-                        if "Distancia" in dfu.columns:
-                            dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
-                            st.line_chart(dfu, x="Data", y="Distancia")
-                else:
-                    st.info("Nenhum histórico encontrado.")
-            else:
-                st.info("Nenhum registro encontrado.")
-        except Exception as e:
-            st.error(f"Erro ao carregar histórico: {e}")
-
-
-elif st.session_state["pagina_atual"] == "provas":
-    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("🏅 Provas")
-    ss = conectar_gsheets()
-    if ss:
-        df = pd.DataFrame(ss.worksheet("Provas").get_all_records())
-        if not df.empty and 'ID_Usuario' in df.columns:
-            st.dataframe(df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario']), use_container_width=True)
-            with st.form("p"):
-                d = st.date_input("Data"); n = st.text_input("Nome"); di = st.selectbox("km", ["5k","10k","21k"]); 
-                if st.form_submit_button("Add"): ss.worksheet("Provas").append_row([USER, d.strftime("%d/%m/%Y"), n, di, "Pendente", "-"]); st.rerun()
-
-elif st.session_state["pagina_atual"] == "ia_coach":
-    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("🤖 Coach IA")
-    if "openai_key" in st.secrets:
-        client = OpenAI(api_key=st.secrets["openai_key"])
-        if not st.session_state["messages"]:
-            ctx = carregar_contexto_ia()
-            st.session_state["messages"].append({"role": "system", "content": f"Aluno: {NOME} ({MODALIDADE}). Contexto: {ctx}"})
-        for m in st.session_state.messages: 
-            if m["role"] != "system": st.chat_message(m["role"]).write(m["content"])
-        if p := st.chat_input("?"):
-            st.session_state.messages.append({"role": "user", "content": p}); st.chat_message("user").write(p)
-            try:
-                r = client.chat.completions.create(model="gpt-4o", messages=st.session_state.messages)
-                st.session_state.messages.append({"role": "assistant", "content": r.choices[0].message.content})
-                st.chat_message("assistant").write(r.choices[0].message.content)
-            except Exception as e: st.error(e)
+            l = [r['Usuario'] for r in ss.
