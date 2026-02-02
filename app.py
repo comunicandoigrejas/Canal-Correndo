@@ -306,14 +306,23 @@ elif st.session_state["pagina_atual"] == "registro":
             ss = conectar_gsheets()
             if ss: ss.worksheet("Registros").append_row([USER_ID, d.strftime("%d/%m/%Y"), di, te, pe, ob]); st.success("Salvo!")
 
-elif st.session_state["pagina_atual"] == "agenda":
-    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📅 Agenda")
-    ss = conectar_gsheets()
-    if ss:
+if ss:
+        # Pega todos os dados
         df = pd.DataFrame(ss.worksheet("Agenda").get_all_records())
+        
         if not df.empty and 'ID_Usuario' in df.columns:
-            st.dataframe(df[df['ID_Usuario'] == USER_ID].drop(columns=['ID_Usuario']), use_container_width=True)
+            # FILTRO: Mostra apenas dados deste usuário e remove a coluna ID
+            df_user = df[df['ID_Usuario'] == USER_ID].drop(columns=['ID_Usuario'])
+            
+            if not df_user.empty:
+                # --- CORREÇÃO AQUI ---
+                # Usamos st.table ao invés de st.dataframe.
+                # O st.table força a quebra de linha automática para caber todo o texto.
+                st.table(df_user)
+            else:
+                st.info("Nenhum treino agendado.")
+        else:
+            st.info("Agenda vazia.")
 
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
