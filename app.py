@@ -52,14 +52,14 @@ st.markdown("""
     }
 
     /* --- CORREÇÃO DE TABELA (NOVO) --- */
-    /* Força as colunas 1 (Data) e 2 (Tipo) a não quebrarem linha */
+    /* Regra: Nas colunas 1 (Data) e 2 (Tipo), PROIBIDO quebrar linha */
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1),
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
-        white-space: nowrap !important;
-        width: 1%; /* Macete: ocupa apenas o espaço necessário para o texto, nem mais nem menos */
+        white-space: nowrap !important; /* O segredo: impede que 'Segunda' vire 'Seg-und-a' */
+        width: 1%; /* Truque: A coluna ocupa o mínimo necessário, deixando o resto para Detalhes */
     }
     
-    /* Garante que a tabela use 100% da largura disponível */
+    /* Garante que a tabela use 100% da largura da tela */
     [data-testid="stTable"] table {
         width: 100% !important;
     }
