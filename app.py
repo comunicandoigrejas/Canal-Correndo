@@ -66,7 +66,7 @@ st.markdown("""
         white-space: nowrap !important; 
     }
     /* Coluna 3 (Detalhes): Força largura mínima de 130px */
-    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
+    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(3) {
         min-width: 130px !important;
         white-space: nowrap !important; 
     }
