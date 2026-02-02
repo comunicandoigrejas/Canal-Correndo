@@ -8,6 +8,7 @@ import pandas as pd
 import time
 
 # --- 1. CONFIGURAÇÃO E CSS ---
+# --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
 
 st.markdown("""
@@ -30,6 +31,7 @@ st.markdown("""
         border: 2px solid #ff4b4b;
     }
 
+    /* Cores dos Cards */
     .highlight-card {
         background-color: #f0f2f6;
         padding: 20px;
@@ -51,17 +53,22 @@ st.markdown("""
         color: #856404 !important;
     }
 
-    /* --- CORREÇÃO DE TABELA (NOVO) --- */
-    /* Regra: Nas colunas 1 (Data) e 2 (Tipo), PROIBIDO quebrar linha */
-    [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1),
-    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
-        white-space: nowrap !important; /* O segredo: impede que 'Segunda' vire 'Seg-und-a' */
-        width: 1%; /* Truque: A coluna ocupa o mínimo necessário, deixando o resto para Detalhes */
+    /* --- CORREÇÃO DE TABELA (DEFINITIVA) --- */
+    /* Coluna 1 (Data): Força largura mínima de 90px */
+    [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) {
+        min-width: 90px !important;
+        white-space: nowrap !important;
     }
     
-    /* Garante que a tabela use 100% da largura da tela */
-    [data-testid="stTable"] table {
-        width: 100% !important;
+    /* Coluna 2 (Tipo): Força largura mínima de 150px */
+    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
+        min-width: 150px !important;
+        white-space: nowrap !important; 
+    }
+    
+    /* Alinha o texto da tabela no topo para facilitar a leitura */
+    [data-testid="stTable"] td {
+        vertical-align: top !important;
     }
 </style>
 """, unsafe_allow_html=True)
