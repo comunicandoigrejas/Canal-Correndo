@@ -8,7 +8,6 @@ import pandas as pd
 import time
 
 # --- 1. CONFIGURAÇÃO E CSS ---
-# --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
 
 st.markdown("""
@@ -54,9 +53,9 @@ st.markdown("""
     }
 
     /* --- CORREÇÃO DE TABELA (DEFINITIVA) --- */
-    /* Coluna 1 (Data): Força largura mínima de 90px */
+    /* Coluna 1 (Data): Força largura mínima de 80px */
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) {
-        min-width: 90px !important;
+        min-width: 80px !important;
         white-space: nowrap !important;
     }
     
