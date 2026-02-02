@@ -17,7 +17,7 @@ st.markdown("""
     footer {visibility: hidden;}
     .block-container {padding-top: 2rem;}
 
-    /* Estilos Globais */
+    /* Estilos Globais dos Botões */
     .stButton > button {
         width: 100%;
         height: 80px;
@@ -25,12 +25,33 @@ st.markdown("""
         border-radius: 12px;
         margin-bottom: 10px;
     }
+
+    /* --- CORREÇÃO DE COR AQUI --- */
+    /* Estilo do Card de Destaque */
     .highlight-card {
-        background-color: #f0f2f6;
+        background-color: #f0f2f6; /* Fundo Cinza Claro */
         padding: 20px;
         border-radius: 10px;
         border-left: 5px solid #ff4b4b;
         margin-bottom: 20px;
+        
+        /* Força a cor do texto para cinza escuro, para não sumir no modo escuro */
+        color: #31333F !important; 
+    }
+    
+    /* Força também os títulos e parágrafos dentro do card a serem escuros */
+    .highlight-card h3, .highlight-card p, .highlight-card strong {
+        color: #31333F !important;
+    }
+    
+    /* Estilos de Status (Tabela) */
+    .status-done {
+        color: green;
+        font-weight: bold;
+    }
+    .status-pending {
+        color: orange;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
