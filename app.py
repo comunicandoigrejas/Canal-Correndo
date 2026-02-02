@@ -53,15 +53,15 @@ st.markdown("""
     }
 
     /* --- CORREÇÃO DE TABELA (DEFINITIVA) --- */
-    /* Coluna 1 (Data): Força largura mínima de 50px */
+    /* Coluna 1 (Data): Força largura mínima de 40px */
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) {
-        min-width: 50px !important;
+        min-width: 40px !important;
         white-space: nowrap !important;
     }
     
-    /* Coluna 2 (Tipo): Força largura mínima de 100px */
+    /* Coluna 2 (Tipo): Força largura mínima de 90px */
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
-        min-width: 100px !important;
+        min-width: 90px !important;
         white-space: nowrap !important; 
     }
     
