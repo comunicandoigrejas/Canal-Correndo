@@ -249,13 +249,12 @@ elif st.session_state["pagina_atual"] == "registro":
                     st.success("Corrida Salva!")
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
 
-# === OUTRAS TELAS ===
+# === PAINEL ADMIN COM MONITORAMENTO INTELIGENTE ===
 elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.title("⚙️ Painel Admin")
     
-    # ATUALIZAÇÃO: ADICIONADA A ABA 4 (Monitorar)
     t1, t2, t3, t4 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar"])
     
     with t1:
@@ -279,16 +278,23 @@ elif st.session_state["pagina_atual"] == "admin_panel":
             us = st.text_input("Destinatario (Login ou TODOS)"); tx = st.text_area("Msg"); tp = st.selectbox("Tipo", ["Aviso", "Motivacional"])
             if st.form_submit_button("Enviar"): ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp]); st.success("Enviado!")
 
-    # NOVA ABA DE MONITORAMENTO
+    # ABA 4 ATUALIZADA - LÓGICA DE MODALIDADE
     with t4:
         st.subheader("Acompanhar Alunos")
         if ss:
-            # 1. Lista de Alunos
+            # 1. Pega lista de usuários e cria um mapa de modalidades
             ws_users = ss.worksheet("Usuarios")
-            lista_alunos = [r['Usuario'] for r in ws_users.get_all_records()]
+            records_users = ws_users.get_all_records()
+            # Dicionário: {'joao': 'Corrida', 'maria': 'Musculacao'}
+            mapa_modalidades = {str(r['Usuario']): str(r.get('Modalidade', 'Corrida')) for r in records_users}
+            lista_alunos = list(mapa_modalidades.keys())
             
             aluno_selecionado = st.selectbox("Selecione o Aluno para Espionar:", lista_alunos)
             
+            # Descobre se o aluno selecionado é da musculação
+            modalidade_aluno = mapa_modalidades.get(aluno_selecionado, 'Corrida')
+            is_musc_aluno = "muscula" in modalidade_aluno.lower()
+
             # 2. Busca Registros
             ws_reg = ss.worksheet("Registros")
             df_reg = pd.DataFrame(ws_reg.get_all_records())
@@ -298,8 +304,15 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                 df_aluno = df_reg[df_reg['ID_Usuario'] == aluno_selecionado].drop(columns=['ID_Usuario'])
                 
                 if not df_aluno.empty:
-                    st.write(f"**Histórico de {aluno_selecionado}:**")
-                    st.dataframe(df_aluno, use_container_width=True)
+                    st.write(f"**Histórico de {aluno_selecionado} ({modalidade_aluno}):**")
+                    
+                    if is_musc_aluno:
+                        # VISUALIZAÇÃO LIMPA (MUSCULAÇÃO)
+                        cols_view = [c for c in ["Data", "Observacoes"] if c in df_aluno.columns]
+                        st.dataframe(df_aluno[cols_view], use_container_width=True, hide_index=True)
+                    else:
+                        # VISUALIZAÇÃO COMPLETA (CORRIDA)
+                        st.dataframe(df_aluno, use_container_width=True)
                 else:
                     st.warning(f"O aluno {aluno_selecionado} ainda não registrou nenhum treino.")
             else:
@@ -317,7 +330,6 @@ elif st.session_state["pagina_atual"] == "agenda":
             if not dfu.empty: st.table(dfu)
             else: st.info("Sem treinos.")
 
-# === HISTÓRICO INTELIGENTE ===
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📊 Histórico de Treinos")
