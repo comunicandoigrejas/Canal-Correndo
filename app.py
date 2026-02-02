@@ -306,7 +306,13 @@ elif st.session_state["pagina_atual"] == "registro":
             ss = conectar_gsheets()
             if ss: ss.worksheet("Registros").append_row([USER_ID, d.strftime("%d/%m/%Y"), di, te, pe, ob]); st.success("Salvo!")
 
-if ss:
+# === AGENDA (ATUALIZADA COM QUEBRA DE LINHA) ===
+elif st.session_state["pagina_atual"] == "agenda":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("📅 Sua Agenda")
+    
+    ss = conectar_gsheets()
+    if ss:
         # Pega todos os dados
         df = pd.DataFrame(ss.worksheet("Agenda").get_all_records())
         
@@ -323,7 +329,6 @@ if ss:
                 st.info("Nenhum treino agendado.")
         else:
             st.info("Agenda vazia.")
-
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📊 Histórico")
