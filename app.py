@@ -65,6 +65,11 @@ st.markdown("""
         min-width: 90px !important;
         white-space: nowrap !important; 
     }
+    /* Coluna 3 (Detalhes): Força largura mínima de 130px */
+    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
+        min-width: 130px !important;
+        white-space: nowrap !important; 
+    }
     
     /* Alinha o texto da tabela no topo para facilitar a leitura */
     [data-testid="stTable"] td {
