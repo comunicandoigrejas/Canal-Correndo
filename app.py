@@ -255,11 +255,13 @@ elif st.session_state["pagina_atual"] == "admin_panel":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.title("⚙️ Painel Admin")
     
+    # Conecta uma vez para todas as abas admin
+    ss = conectar_gsheets()
+    
     t1, t2, t3, t4 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar"])
     
     with t1:
         with st.form("at"):
-            ss = conectar_gsheets()
             l = [r['Usuario'] for r in ss.worksheet("Usuarios").get_all_records()] if ss else []
             u = st.selectbox("Aluno", l); dt = st.date_input("Data"); tp = st.text_input("Tipo/Treino"); det = st.text_area("Detalhes")
             if st.form_submit_button("Agendar"): ss.worksheet("Agenda").append_row([u, dt.strftime("%d/%m/%Y"), tp, det]); st.success("Feito!")
@@ -273,45 +275,51 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                 if st.form_submit_button("Atualizar"): 
                     c = ws.find(us); ws.update_cell(c.row, 5, ns); st.success("Atualizado!"); st.rerun()
     
+    # --- ABA MENSAGEM CORRIGIDA ---
     with t3:
-        with st.form("msg"):
-            us = st.text_input("Destinatario (Login ou TODOS)"); tx = st.text_area("Msg"); tp = st.selectbox("Tipo", ["Aviso", "Motivacional"])
-            if st.form_submit_button("Enviar"): ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp]); st.success("Enviado!")
+        st.subheader("📢 Enviar Mensagem")
+        if ss:
+            ws_users = ss.worksheet("Usuarios")
+            # Cria lista com opção TODOS + nomes dos usuários
+            lista_destinatarios = ["TODOS"] + [r['Usuario'] for r in ws_users.get_all_records()]
+            
+            with st.form("msg"):
+                # AGORA É SELECTBOX (DROPDOWN)
+                us = st.selectbox("Destinatário", lista_destinatarios)
+                tx = st.text_area("Mensagem")
+                # LISTA DE TIPOS AUMENTADA
+                tp = st.selectbox("Tipo", ["Aviso Geral", "Motivacional", "Cobrança", "Parabéns", "Dica Técnica"])
+                
+                if st.form_submit_button("Enviar"): 
+                    ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp])
+                    st.success("Mensagem enviada!")
 
-    # ABA 4 ATUALIZADA - LÓGICA DE MODALIDADE
+    # ABA 4 - MONITORAMENTO
     with t4:
         st.subheader("Acompanhar Alunos")
         if ss:
-            # 1. Pega lista de usuários e cria um mapa de modalidades
             ws_users = ss.worksheet("Usuarios")
             records_users = ws_users.get_all_records()
-            # Dicionário: {'joao': 'Corrida', 'maria': 'Musculacao'}
             mapa_modalidades = {str(r['Usuario']): str(r.get('Modalidade', 'Corrida')) for r in records_users}
             lista_alunos = list(mapa_modalidades.keys())
             
             aluno_selecionado = st.selectbox("Selecione o Aluno para Espionar:", lista_alunos)
             
-            # Descobre se o aluno selecionado é da musculação
             modalidade_aluno = mapa_modalidades.get(aluno_selecionado, 'Corrida')
             is_musc_aluno = "muscula" in modalidade_aluno.lower()
 
-            # 2. Busca Registros
             ws_reg = ss.worksheet("Registros")
             df_reg = pd.DataFrame(ws_reg.get_all_records())
             
             if not df_reg.empty and 'ID_Usuario' in df_reg.columns:
-                # 3. Filtra
                 df_aluno = df_reg[df_reg['ID_Usuario'] == aluno_selecionado].drop(columns=['ID_Usuario'])
                 
                 if not df_aluno.empty:
                     st.write(f"**Histórico de {aluno_selecionado} ({modalidade_aluno}):**")
-                    
                     if is_musc_aluno:
-                        # VISUALIZAÇÃO LIMPA (MUSCULAÇÃO)
                         cols_view = [c for c in ["Data", "Observacoes"] if c in df_aluno.columns]
                         st.dataframe(df_aluno[cols_view], use_container_width=True, hide_index=True)
                     else:
-                        # VISUALIZAÇÃO COMPLETA (CORRIDA)
                         st.dataframe(df_aluno, use_container_width=True)
                 else:
                     st.warning(f"O aluno {aluno_selecionado} ainda não registrou nenhum treino.")
