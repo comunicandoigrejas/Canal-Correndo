@@ -30,6 +30,14 @@ st.markdown("""
         color: white;
         border: 2px solid #ff4b4b;
     }
+    
+    /* Botão Menor para Troca de Senha */
+    .small-btn > button {
+        height: 50px !important;
+        background-color: transparent;
+        border: 1px solid #ccc;
+        color: #31333F;
+    }
 
     .highlight-card {
         background-color: #f0f2f6;
@@ -52,23 +60,19 @@ st.markdown("""
         color: #856404 !important;
     }
 
-    /* --- CORREÇÃO DE TABELA (AGENDA) --- */
-    
+    /* --- CORREÇÃO DE TABELA (DEFINITIVA) --- */
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) {
         min-width: 15px !important;
         white-space: nowrap !important;
     }
-    
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
         min-width: 30px !important;
         white-space: nowrap !important; 
     }
-
     [data-testid="stTable"] th:nth-child(3), [data-testid="stTable"] td:nth-child(3) {
         min-width: 130px !important;
         white-space: nowrap !important; 
     }
-    
     [data-testid="stTable"] td {
         vertical-align: top !important;
     }
@@ -201,6 +205,7 @@ if st.session_state["pagina_atual"] == "dashboard":
 
     st.markdown("---")
     
+    # Grid Principal
     c1, c2, c3 = st.columns(3)
     with c1:
         st.button("📝 Registrar", on_click=navegar_para, args=("registro",))
@@ -216,6 +221,12 @@ if st.session_state["pagina_atual"] == "dashboard":
              st.markdown('<div class="admin-btn">', unsafe_allow_html=True)
              st.button("⚙️ ADMIN", on_click=navegar_para, args=("admin_panel",))
              st.markdown('</div>', unsafe_allow_html=True)
+
+    # Botão de Troca de Senha (Estilo discreto)
+    st.markdown("---")
+    st.markdown('<div class="small-btn">', unsafe_allow_html=True)
+    st.button("🔑 Alterar Senha", on_click=navegar_para, args=("trocar_senha",))
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # === REGISTRO INTELIGENTE ===
 elif st.session_state["pagina_atual"] == "registro":
@@ -249,15 +260,13 @@ elif st.session_state["pagina_atual"] == "registro":
                     st.success("Corrida Salva!")
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
 
-# === PAINEL ADMIN COM MONITORAMENTO INTELIGENTE ===
+# === PAINEL ADMIN ===
 elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.title("⚙️ Painel Admin")
     
-    # Conecta uma vez para todas as abas admin
     ss = conectar_gsheets()
-    
     t1, t2, t3, t4 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar"])
     
     with t1:
@@ -275,26 +284,19 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                 if st.form_submit_button("Atualizar"): 
                     c = ws.find(us); ws.update_cell(c.row, 5, ns); st.success("Atualizado!"); st.rerun()
     
-    # --- ABA MENSAGEM CORRIGIDA ---
     with t3:
         st.subheader("📢 Enviar Mensagem")
         if ss:
             ws_users = ss.worksheet("Usuarios")
-            # Cria lista com opção TODOS + nomes dos usuários
             lista_destinatarios = ["TODOS"] + [r['Usuario'] for r in ws_users.get_all_records()]
-            
             with st.form("msg"):
-                # AGORA É SELECTBOX (DROPDOWN)
                 us = st.selectbox("Destinatário", lista_destinatarios)
                 tx = st.text_area("Mensagem")
-                # LISTA DE TIPOS AUMENTADA
                 tp = st.selectbox("Tipo", ["Aviso Geral", "Motivacional", "Cobrança", "Parabéns", "Dica Técnica"])
-                
                 if st.form_submit_button("Enviar"): 
                     ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp])
                     st.success("Mensagem enviada!")
 
-    # ABA 4 - MONITORAMENTO
     with t4:
         st.subheader("Acompanhar Alunos")
         if ss:
@@ -304,7 +306,6 @@ elif st.session_state["pagina_atual"] == "admin_panel":
             lista_alunos = list(mapa_modalidades.keys())
             
             aluno_selecionado = st.selectbox("Selecione o Aluno para Espionar:", lista_alunos)
-            
             modalidade_aluno = mapa_modalidades.get(aluno_selecionado, 'Corrida')
             is_musc_aluno = "muscula" in modalidade_aluno.lower()
 
@@ -313,7 +314,6 @@ elif st.session_state["pagina_atual"] == "admin_panel":
             
             if not df_reg.empty and 'ID_Usuario' in df_reg.columns:
                 df_aluno = df_reg[df_reg['ID_Usuario'] == aluno_selecionado].drop(columns=['ID_Usuario'])
-                
                 if not df_aluno.empty:
                     st.write(f"**Histórico de {aluno_selecionado} ({modalidade_aluno}):**")
                     if is_musc_aluno:
@@ -321,10 +321,8 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                         st.dataframe(df_aluno[cols_view], use_container_width=True, hide_index=True)
                     else:
                         st.dataframe(df_aluno, use_container_width=True)
-                else:
-                    st.warning(f"O aluno {aluno_selecionado} ainda não registrou nenhum treino.")
-            else:
-                st.info("Nenhum registro encontrado na plataforma.")
+                else: st.warning(f"O aluno {aluno_selecionado} ainda não registrou nenhum treino.")
+            else: st.info("Nenhum registro encontrado.")
 
 
 elif st.session_state["pagina_atual"] == "agenda":
@@ -391,3 +389,45 @@ elif st.session_state["pagina_atual"] == "ia_coach":
                 st.session_state.messages.append({"role": "assistant", "content": r.choices[0].message.content})
                 st.chat_message("assistant").write(r.choices[0].message.content)
             except Exception as e: st.error(e)
+
+# === NOVA TELA: TROCAR SENHA ===
+elif st.session_state["pagina_atual"] == "trocar_senha":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("🔑 Alterar Senha")
+    
+    with st.form("form_senha"):
+        senha_atual = st.text_input("Senha Atual", type="password")
+        nova_senha = st.text_input("Nova Senha", type="password")
+        confirma_senha = st.text_input("Confirme a Nova Senha", type="password")
+        
+        if st.form_submit_button("Alterar Senha"):
+            ss = conectar_gsheets()
+            if ss:
+                try:
+                    ws = ss.worksheet("Usuarios")
+                    # Busca o usuário
+                    cell = ws.find(USER)
+                    
+                    if cell:
+                        # Verifica senha antiga (Coluna B = 2)
+                        # row=cell.row, col=2
+                        senha_banco = ws.cell(cell.row, 2).value
+                        
+                        if str(senha_banco).strip() == senha_atual.strip():
+                            if nova_senha == confirma_senha:
+                                if len(nova_senha) > 0:
+                                    ws.update_cell(cell.row, 2, nova_senha)
+                                    st.success("Senha alterada com sucesso! Faça login novamente.")
+                                    time.sleep(2)
+                                    logout()
+                                    st.rerun()
+                                else:
+                                    st.error("A nova senha não pode ser vazia.")
+                            else:
+                                st.error("A nova senha e a confirmação não batem.")
+                        else:
+                            st.error("Senha atual incorreta.")
+                    else:
+                        st.error("Usuário não encontrado.")
+                except Exception as e:
+                    st.error(f"Erro ao alterar senha: {e}")
