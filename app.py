@@ -60,9 +60,9 @@ st.markdown("""
         white-space: nowrap !important;
     }
     
-    /* Coluna 2 (Tipo): Força largura mínima de 90px */
+    /* Coluna 2 (Tipo): Força largura mínima de 50px */
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
-        min-width: 90px !important;
+        min-width: 50px !important;
         white-space: nowrap !important; 
     }
     /* Coluna 3 (Detalhes): Força largura mínima de 130px */
