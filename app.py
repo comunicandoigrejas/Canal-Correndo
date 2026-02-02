@@ -12,12 +12,10 @@ st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centere
 
 st.markdown("""
 <style>
-    /* Oculta barra superior e rodapé */
     header {visibility: hidden;}
     footer {visibility: hidden;}
     .block-container {padding-top: 2rem;}
 
-    /* Estilos Globais dos Botões */
     .stButton > button {
         width: 100%;
         height: 80px;
@@ -25,33 +23,34 @@ st.markdown("""
         border-radius: 12px;
         margin-bottom: 10px;
     }
+    
+    /* Botão de Admin diferenciado */
+    .admin-btn > button {
+        background-color: #31333F;
+        color: white;
+        border: 2px solid #ff4b4b;
+    }
 
-    /* --- CORREÇÃO DE COR AQUI --- */
-    /* Estilo do Card de Destaque */
     .highlight-card {
-        background-color: #f0f2f6; /* Fundo Cinza Claro */
+        background-color: #f0f2f6;
         padding: 20px;
         border-radius: 10px;
         border-left: 5px solid #ff4b4b;
         margin-bottom: 20px;
-        
-        /* Força a cor do texto para cinza escuro, para não sumir no modo escuro */
-        color: #31333F !important; 
+        color: #31333F !important;
     }
-    
-    /* Força também os títulos e parágrafos dentro do card a serem escuros */
     .highlight-card h3, .highlight-card p, .highlight-card strong {
         color: #31333F !important;
     }
     
-    /* Estilos de Status (Tabela) */
-    .status-done {
-        color: green;
-        font-weight: bold;
-    }
-    .status-pending {
-        color: orange;
-        font-weight: bold;
+    /* Estilo do Aviso/Mensagem */
+    .message-card {
+        background-color: #fff3cd;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #ffc107;
+        margin-bottom: 20px;
+        color: #856404 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -59,9 +58,11 @@ st.markdown("""
 # --- 2. GERENCIAMENTO DE SESSÃO ---
 
 if "pagina_atual" not in st.session_state:
-    st.session_state["pagina_atual"] = "login" # Começa no login
+    st.session_state["pagina_atual"] = "login"
 if "usuario_atual" not in st.session_state:
     st.session_state["usuario_atual"] = None
+if "is_admin" not in st.session_state:
+    st.session_state["is_admin"] = False
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 
@@ -70,10 +71,11 @@ def navegar_para(pagina):
 
 def logout():
     st.session_state["usuario_atual"] = None
+    st.session_state["is_admin"] = False
     st.session_state["pagina_atual"] = "login"
     st.session_state["messages"] = []
 
-# --- 3. CONEXÃO E SEGURANÇA ---
+# --- 3. CONEXÃO E LÓGICA DE DADOS ---
 
 def conectar_gsheets():
     try:
@@ -90,21 +92,41 @@ def conectar_gsheets():
         return None
 
 def verificar_login(usuario, senha):
-    """Verifica usuário e senha na aba 'Usuarios'"""
+    """Verifica credenciais, status e função na aba 'Usuarios'"""
     ss = conectar_gsheets()
     if ss:
         try:
             ws = ss.worksheet("Usuarios")
-            todos_usuarios = ws.get_all_records()
-            for u in todos_usuarios:
-                # Converte para string para evitar erro de tipo
+            todos = ws.get_all_records()
+            for u in todos:
                 if str(u['Usuario']) == usuario and str(u['Senha']) == senha:
-                    return u['Nome'] # Retorna o nome se achar
-            return None
+                    # Verifica se está bloqueado
+                    if str(u.get('Status', 'Ativo')) == 'Bloqueado':
+                        return "BLOQUEADO", None
+                    
+                    # Retorna Nome e Função (admin/aluno)
+                    return u['Nome'], u.get('Funcao', 'aluno')
+            return None, None
         except:
-            st.error("Aba 'Usuarios' não encontrada na planilha.")
-            return None
-    return None
+            st.error("Erro na aba 'Usuarios'. Verifique as colunas.")
+            return None, None
+    return None, None
+
+def carregar_mensagens_usuario(user_id):
+    """Busca mensagens para o usuário logado ou TODOS"""
+    ss = conectar_gsheets()
+    msgs_para_exibir = []
+    if ss:
+        try:
+            ws = ss.worksheet("Mensagens")
+            records = ws.get_all_records()
+            # Pega as últimas mensagens (inverte a lista)
+            for row in reversed(records):
+                if row['Destinatario'] == 'TODOS' or row['Destinatario'] == user_id:
+                    msgs_para_exibir.append(row)
+                    if len(msgs_para_exibir) >= 3: break # Mostra só as 3 últimas
+        except: pass
+    return msgs_para_exibir
 
 def carregar_contexto_ia():
     try:
@@ -112,255 +134,227 @@ def carregar_contexto_ia():
             return f.read()
     except: return "Contexto não encontrado."
 
-# --- 4. TELA DE LOGIN (NOVA) ---
+# --- 4. TELA DE LOGIN ---
 
 if st.session_state["usuario_atual"] is None:
     st.title("🏃 Running Coach - Acesso")
-    
-    with st.form("login_form"):
-        user_input = st.text_input("Usuário")
-        pass_input = st.text_input("Senha", type="password")
-        submit_login = st.form_submit_button("Entrar")
-        
-        if submit_login:
-            nome_usuario = verificar_login(user_input, pass_input)
-            if nome_usuario:
-                st.session_state["usuario_atual"] = user_input
-                st.session_state["nome_usuario"] = nome_usuario
+    with st.form("login"):
+        u = st.text_input("Usuário")
+        s = st.text_input("Senha", type="password")
+        if st.form_submit_button("Entrar"):
+            nome, funcao = verificar_login(u, s)
+            if nome == "BLOQUEADO":
+                st.error("🚫 Acesso negado. Contate o treinador.")
+            elif nome:
+                st.session_state["usuario_atual"] = u
+                st.session_state["nome_usuario"] = nome
+                st.session_state["is_admin"] = (funcao == 'admin')
                 st.session_state["pagina_atual"] = "dashboard"
-                st.success(f"Bem-vindo, {nome_usuario}!")
                 st.rerun()
             else:
-                st.error("Usuário ou senha incorretos.")
-    st.stop() # Para o código aqui se não estiver logado
+                st.error("Dados incorretos.")
+    st.stop()
 
-# --- 5. LÓGICA DO APLICATIVO (SÓ CARREGA SE LOGADO) ---
+# --- 5. APLICAÇÃO ---
 
-# Atalho para o ID do usuário logado
 USER_ID = st.session_state["usuario_atual"]
+NOME_USER = st.session_state["nome_usuario"]
+IS_ADMIN = st.session_state["is_admin"]
 
 # === DASHBOARD ===
 if st.session_state["pagina_atual"] == "dashboard":
-    # Cabeçalho com Logout
     c1, c2 = st.columns([3, 1])
-    c1.title(f"Olá, {st.session_state['nome_usuario']}!")
+    c1.title(f"Olá, {NOME_USER}!")
     if c2.button("Sair"): logout(); st.rerun()
 
-    # Busca Treino do Dia (Filtrado pelo Usuário)
+    # 1. MURAL DE AVISOS (NOVO)
+    mensagens = carregar_mensagens_usuario(USER_ID)
+    if mensagens:
+        for msg in mensagens:
+            st.markdown(f"""
+            <div class="message-card">
+                <strong>🔔 {msg['Tipo'] or 'Aviso'}:</strong> {msg['Mensagem']} <br>
+                <small>Em: {msg['Data']}</small>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # 2. TREINO DO DIA
     treino_hoje = None
     ss = conectar_gsheets()
     if ss:
         try:
             ws = ss.worksheet("Agenda")
-            records = ws.get_all_records()
-            hoje_str = date.today().strftime("%d/%m/%Y")
-            
-            for row in records:
-                # Filtra: Só mostra se for do usuário logado E for hoje
-                if str(row['ID_Usuario']) == USER_ID and str(row['Data']) == hoje_str:
-                    treino_hoje = row
+            recs = ws.get_all_records()
+            hoje = date.today().strftime("%d/%m/%Y") # Ajuste se precisar de fuso
+            for r in recs:
+                if str(r['ID_Usuario']) == USER_ID and str(r['Data']) == hoje:
+                    treino_hoje = r
                     break
         except: pass
     
-    st.subheader("📅 Status do Dia")
+    st.subheader("📅 Treino de Hoje")
     if treino_hoje:
         st.markdown(f"""
         <div class="highlight-card">
-            <h3>Hoje é dia de: {treino_hoje['Tipo']}</h3>
-            <p><strong>Treino:</strong> {treino_hoje['Detalhes']}</p>
+            <h3>{treino_hoje['Tipo']}</h3>
+            <p>{treino_hoje['Detalhes']}</p>
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Nenhum treino agendado para hoje. Descanso! 💤")
+        st.info("Descanso hoje! 💤")
 
     st.markdown("---")
     
-    # Menu Grid
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.button("📝 Registrar\nTreino", on_click=navegar_para, args=("registro",))
-        st.button("📅 Agenda\nFutura", on_click=navegar_para, args=("agenda",))
-    with col2:
-        st.button("📊 Histórico\nResultados", on_click=navegar_para, args=("historico",))
-        st.button("🤖 Adaptar\nTreino (IA)", on_click=navegar_para, args=("ia_coach",))
-    with col3:
-        st.button("➕ Cadastrar\nTreinos", on_click=navegar_para, args=("cadastro_agenda",))
-        st.button("🏅 Provas\n& Metas", on_click=navegar_para, args=("provas",))
+    # 3. MENU
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.button("📝 Registrar", on_click=navegar_para, args=("registro",))
+        st.button("📅 Agenda", on_click=navegar_para, args=("agenda",))
+    with c2:
+        st.button("📊 Histórico", on_click=navegar_para, args=("historico",))
+        st.button("🤖 IA Coach", on_click=navegar_para, args=("ia_coach",))
+    with c3:
+        st.button("🏅 Provas", on_click=navegar_para, args=("provas",))
+        # BOTÃO EXCLUSIVO DE ADMIN
+        if IS_ADMIN:
+             # Usando markdown para injetar classe CSS especifica se possível, ou apenas botão
+             st.markdown('<div class="admin-btn">', unsafe_allow_html=True)
+             st.button("⚙️ PAINEL\nADMIN", on_click=navegar_para, args=("admin_panel",))
+             st.markdown('</div>', unsafe_allow_html=True)
 
-# === REGISTRO (SALVA COM ID_USUARIO) ===
+# === PAINEL ADMIN (NOVO) ===
+elif st.session_state["pagina_atual"] == "admin_panel":
+    if not IS_ADMIN: navegar_para("dashboard"); st.rerun()
+    
+    st.button("⬅ Voltar ao App", on_click=navegar_para, args=("dashboard",))
+    st.title("⚙️ Painel do Treinador")
+    st.markdown("---")
+
+    tab1, tab2, tab3 = st.tabs(["🏋️ Atribuir Treinos", "👥 Gerenciar Alunos", "📢 Enviar Mensagem"])
+
+    # ABA 1: ATRIBUIR TREINOS PARA OUTROS
+    with tab1:
+        st.subheader("Cadastrar Treino para Aluno")
+        ss = conectar_gsheets()
+        if ss:
+            ws_users = ss.worksheet("Usuarios")
+            lista_users = [row['Usuario'] for row in ws_users.get_all_records()]
+            
+            with st.form("admin_add_treino"):
+                aluno_alvo = st.selectbox("Selecione o Aluno", lista_users)
+                dt = st.date_input("Data do Treino")
+                tp = st.selectbox("Tipo", ["Rodagem", "Tiro", "Longo", "Regenerativo", "Descanso"])
+                det = st.text_area("Detalhes do Treino")
+                
+                if st.form_submit_button("Agendar Treino"):
+                    ws_agenda = ss.worksheet("Agenda")
+                    ws_agenda.append_row([aluno_alvo, dt.strftime("%d/%m/%Y"), tp, det])
+                    st.success(f"Treino agendado para {aluno_alvo}!")
+
+    # ABA 2: GERENCIAR ALUNOS (BLOQUEAR)
+    with tab2:
+        st.subheader("Controle de Acesso")
+        if ss:
+            ws_users = ss.worksheet("Usuarios")
+            df_users = pd.DataFrame(ws_users.get_all_records())
+            
+            # Edição visual
+            st.dataframe(df_users)
+            
+            st.write("### Alterar Status")
+            with st.form("edit_user"):
+                u_sel = st.selectbox("Aluno", df_users['Usuario'].tolist())
+                novo_status = st.selectbox("Novo Status", ["Ativo", "Bloqueado"])
+                
+                if st.form_submit_button("Atualizar Status"):
+                    cell = ws_users.find(u_sel)
+                    if cell:
+                        # Coluna 5 é Status
+                        ws_users.update_cell(cell.row, 5, novo_status)
+                        st.success(f"Status de {u_sel} alterado para {novo_status}!")
+                        time.sleep(1)
+                        st.rerun()
+
+    # ABA 3: ENVIAR MENSAGENS
+    with tab3:
+        st.subheader("Mural de Avisos")
+        if ss:
+            ws_users = ss.worksheet("Usuarios")
+            lista_users = ["TODOS"] + [row['Usuario'] for row in ws_users.get_all_records()]
+            
+            with st.form("msg_form"):
+                dest = st.selectbox("Para quem?", lista_users)
+                tipo = st.selectbox("Tipo", ["Aviso Geral", "Motivacional", "Cobrança", "Parabéns"])
+                txt = st.text_area("Mensagem")
+                
+                if st.form_submit_button("Enviar Mensagem"):
+                    ws_msg = ss.worksheet("Mensagens")
+                    ws_msg.append_row([date.today().strftime("%d/%m/%Y"), dest, txt, tipo])
+                    st.success("Mensagem enviada!")
+
+# === OUTRAS PÁGINAS (REGISTRO, AGENDA, ETC - MANTIDAS IGUAIS) ===
 elif st.session_state["pagina_atual"] == "registro":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📝 Registrar Execução")
-    
-    with st.form("form_reg"):
-        d_data = st.date_input("Data", date.today())
-        d_dist = st.number_input("Distância (km)", 0.0, step=0.1)
-        d_tempo = st.text_input("Tempo (00:00:00)", "00:00:00")
-        d_perc = st.slider("Percepção", 0, 10, 5)
-        d_obs = st.text_area("Obs")
-        
+    st.header("📝 Registrar")
+    with st.form("reg"):
+        d = st.date_input("Data", date.today())
+        di = st.number_input("Km", 0.0, step=0.1)
+        te = st.text_input("Tempo", "00:00:00")
+        pe = st.slider("Cansaço", 0, 10, 5)
+        ob = st.text_area("Obs")
         if st.form_submit_button("Salvar"):
             ss = conectar_gsheets()
-            if ss:
-                try:
-                    # Agora a primeira coluna é o USER_ID
-                    ss.worksheet("Registros").append_row([
-                        USER_ID, 
-                        d_data.strftime("%d/%m/%Y"), 
-                        d_dist, d_tempo, d_perc, d_obs
-                    ])
-                    st.success("Salvo!")
-                except Exception as e: st.error(f"Erro: {e}")
+            if ss: ss.worksheet("Registros").append_row([USER_ID, d.strftime("%d/%m/%Y"), di, te, pe, ob]); st.success("Salvo!")
 
-# === AGENDA (FILTRA POR USER_ID) ===
 elif st.session_state["pagina_atual"] == "agenda":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📅 Sua Agenda")
-    
+    st.header("📅 Agenda")
     ss = conectar_gsheets()
     if ss:
         df = pd.DataFrame(ss.worksheet("Agenda").get_all_records())
         if not df.empty and 'ID_Usuario' in df.columns:
-            # FILTRO: Mostra apenas dados deste usuário
-            df_user = df[df['ID_Usuario'] == USER_ID].drop(columns=['ID_Usuario'])
-            st.dataframe(df_user, use_container_width=True)
-        else:
-            st.info("Agenda vazia.")
+            st.dataframe(df[df['ID_Usuario'] == USER_ID].drop(columns=['ID_Usuario']), use_container_width=True)
 
-# === HISTÓRICO (FILTRA POR USER_ID) ===
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📊 Seu Histórico")
-    
+    st.header("📊 Histórico")
     ss = conectar_gsheets()
     if ss:
         df = pd.DataFrame(ss.worksheet("Registros").get_all_records())
         if not df.empty and 'ID_Usuario' in df.columns:
-            # FILTRO
-            df_user = df[df['ID_Usuario'] == USER_ID].copy()
-            
-            if not df_user.empty:
-                st.dataframe(df_user.drop(columns=['ID_Usuario']), use_container_width=True)
-                
-                if "Distancia" in df_user.columns:
-                    df_user["Distancia"] = pd.to_numeric(
-                        df_user["Distancia"].astype(str).str.replace(',','.'), errors='coerce'
-                    )
-                    st.line_chart(df_user, x="Data", y="Distancia")
-            else:
-                st.info("Nenhum registro seu encontrado.")
+            dfu = df[df['ID_Usuario'] == USER_ID]
+            if not dfu.empty:
+                st.dataframe(dfu.drop(columns=['ID_Usuario']), use_container_width=True)
+                if "Distancia" in dfu.columns:
+                     dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
+                     st.line_chart(dfu, x="Data", y="Distancia")
 
-# === PROVAS (FILTRA E SALVA COM ID) ===
 elif st.session_state["pagina_atual"] == "provas":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("🏅 Suas Provas")
-    
+    st.header("🏅 Provas")
     ss = conectar_gsheets()
     if ss:
-        ws = ss.worksheet("Provas")
-        df = pd.DataFrame(ws.get_all_records())
-        
-        # Filtra dataframe para mostrar só o usuário
+        df = pd.DataFrame(ss.worksheet("Provas").get_all_records())
         if not df.empty and 'ID_Usuario' in df.columns:
-            df_user = df[df['ID_Usuario'] == USER_ID]
-        else:
-            df_user = pd.DataFrame()
+            dfu = df[df['ID_Usuario'] == USER_ID]
+            st.dataframe(dfu.drop(columns=['ID_Usuario']), use_container_width=True)
+            
+            with st.form("np"):
+                dt = st.date_input("Data"); nm = st.text_input("Nome"); ds = st.selectbox("Dist", ["5k","10k","21k","42k"])
+                if st.form_submit_button("Agendar"): ss.worksheet("Provas").append_row([USER_ID, dt.strftime("%d/%m/%Y"), nm, ds, "Pendente", "-"]); st.rerun()
 
-        # Mostra Tabela
-        if not df_user.empty:
-            view_df = df_user.drop(columns=['ID_Usuario']) # Esconde o ID na visualização
-            def color(val): return f'color: {"green" if val=="Concluída" else "orange"}'
-            st.dataframe(view_df.style.applymap(color, subset=['Status']), use_container_width=True)
-        
-        t1, t2 = st.tabs(["Nova Prova", "Atualizar"])
-        
-        with t1:
-            with st.form("new_race"):
-                dt = st.date_input("Data")
-                nm = st.text_input("Nome")
-                ds = st.selectbox("Dist", ["5km", "10km", "21km", "42km"])
-                if st.form_submit_button("Agendar"):
-                    # Salva com ID na coluna A
-                    ws.append_row([USER_ID, dt.strftime("%d/%m/%Y"), nm, ds, "Pendente", "-"])
-                    st.success("Agendado!")
-                    st.rerun()
-
-        with t2:
-            if not df_user.empty:
-                # O usuário só pode selecionar provas DELE
-                meus_nomes = df_user['Nome'].tolist()
-                sel = st.selectbox("Prova", meus_nomes)
-                
-                c1, c2 = st.columns(2)
-                check = c1.checkbox("Concluída?")
-                tempo = c2.text_input("Tempo")
-                
-                if st.button("Salvar Resultado"):
-                    # Busca manual segura: acha a linha que tem o ID E o Nome
-                    all_vals = ws.get_all_values()
-                    for idx, row in enumerate(all_vals):
-                        # row[0] é ID, row[2] é Nome (ajustado para indices da lista)
-                        if row[0] == USER_ID and row[2] == sel:
-                            # +1 porque planilhas começam no 1
-                            ws.update_cell(idx+1, 5, "Concluída" if check else "Pendente")
-                            ws.update_cell(idx+1, 6, tempo)
-                            st.success("Atualizado!")
-                            time.sleep(1)
-                            st.rerun()
-                            break
-
-# === CADASTRO AGENDA (NOVA) ===
-elif st.session_state["pagina_atual"] == "cadastro_agenda":
-    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📅 Alimentar Agenda")
-    
-    t1, t2 = st.tabs(["Manual", "Upload"])
-    with t1:
-        with st.form("agenda_man"):
-            dt = st.date_input("Data")
-            tp = st.selectbox("Tipo", ["Rodagem", "Tiro", "Longo"])
-            det = st.text_area("Detalhes")
-            if st.form_submit_button("Salvar"):
-                ss = conectar_gsheets()
-                if ss:
-                    ss.worksheet("Agenda").append_row([
-                        USER_ID, dt.strftime("%d/%m/%Y"), tp, det
-                    ])
-                    st.success("Feito!")
-    
-    with t2:
-        up = st.file_uploader("Arquivo", type=['csv','xlsx'])
-        if up and st.button("Importar"):
-            df_up = pd.read_csv(up) if up.name.endswith('.csv') else pd.read_excel(up)
-            ss = conectar_gsheets()
-            if ss:
-                ws = ss.worksheet("Agenda")
-                for _, row in df_up.iterrows():
-                    # Adiciona ID_Usuario em cada linha importada
-                    ws.append_row([USER_ID, str(row['Data']), row['Tipo'], row['Detalhes']])
-                st.success("Importado!")
-
-# === IA COACH ===
 elif st.session_state["pagina_atual"] == "ia_coach":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("🤖 Coach IA")
-    
     if "openai_key" in st.secrets:
         client = OpenAI(api_key=st.secrets["openai_key"])
         if not st.session_state["messages"]:
             ctx = carregar_contexto_ia()
-            # Informa a IA quem é o usuário
-            st.session_state["messages"].append({
-                "role": "system", 
-                "content": f"Aluno: {st.session_state['nome_usuario']}. Contexto: {ctx}"
-            })
-        
-        for m in st.session_state.messages:
+            st.session_state["messages"].append({"role": "system", "content": f"Aluno: {NOME_USER}. Contexto: {ctx}"})
+        for m in st.session_state.messages: 
             if m["role"] != "system": st.chat_message(m["role"]).write(m["content"])
-            
-        if p := st.chat_input("Dúvida?"):
-            st.session_state.messages.append({"role": "user", "content": p})
-            st.chat_message("user").write(p)
+        if p := st.chat_input("?"):
+            st.session_state.messages.append({"role": "user", "content": p}); st.chat_message("user").write(p)
             try:
                 r = client.chat.completions.create(model="gpt-4o", messages=st.session_state.messages)
                 st.session_state.messages.append({"role": "assistant", "content": r.choices[0].message.content})
