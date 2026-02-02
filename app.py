@@ -125,8 +125,12 @@ def carregar_mensagens_usuario(user_id):
     if ss:
         try:
             ws = ss.worksheet("Mensagens")
-            for row in reversed(ws.get_all_records()):
-                if row['Destinatario'] in ['TODOS', user_id]:
+            # Usa get_all_records garantindo que lê cabeçalhos
+            records = ws.get_all_records()
+            for row in reversed(records):
+                # .get evita o erro se a coluna nao existir
+                dest = row.get('Destinatario', 'TODOS')
+                if dest in ['TODOS', user_id]:
                     msgs.append(row)
                     if len(msgs) >= 3: break
         except: pass
@@ -170,9 +174,15 @@ if st.session_state["pagina_atual"] == "dashboard":
     c1.title(f"Olá, {NOME}!")
     if c2.button("Sair"): logout(); st.rerun()
 
-    # Avisos
-    for m in carregar_mensagens_usuario(USER):
-        st.markdown(f"<div class='message-card'><strong>🔔 {m['Tipo']}:</strong> {m['Mensagem']}</div>", unsafe_allow_html=True)
+    # Avisos (CORREÇÃO AQUI: USANDO .get PARA EVITAR O ERRO)
+    try:
+        mensagens = carregar_mensagens_usuario(USER)
+        for m in mensagens:
+            tipo_msg = m.get('Tipo', 'Aviso') # Se nao achar 'Tipo', usa 'Aviso'
+            texto_msg = m.get('Mensagem', '') # Se nao achar 'Mensagem', usa vazio
+            st.markdown(f"<div class='message-card'><strong>🔔 {tipo_msg}:</strong> {texto_msg}</div>", unsafe_allow_html=True)
+    except Exception as e:
+        st.error("Erro ao ler mensagens. Verifique os cabeçalhos da aba 'Mensagens'.")
 
     # Treino Hoje
     treino = None
