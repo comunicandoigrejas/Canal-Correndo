@@ -160,4 +160,165 @@ if st.session_state["usuario_atual"] is None:
 # --- 5. APP PRINCIPAL ---
 
 USER = st.session_state["usuario_atual"]
-NOME = st.session_state["nome
+NOME = st.session_state["nome_usuario"]
+ADMIN = st.session_state["is_admin"]
+MODALIDADE = st.session_state["modalidade"] 
+
+# === DASHBOARD ===
+if st.session_state["pagina_atual"] == "dashboard":
+    c1, c2 = st.columns([3, 1])
+    c1.title(f"Olá, {NOME}!")
+    if c2.button("Sair"): logout(); st.rerun()
+
+    # Avisos
+    for m in carregar_mensagens_usuario(USER):
+        st.markdown(f"<div class='message-card'><strong>🔔 {m['Tipo']}:</strong> {m['Mensagem']}</div>", unsafe_allow_html=True)
+
+    # Treino Hoje
+    treino = None
+    ss = conectar_gsheets()
+    if ss:
+        try:
+            ws = ss.worksheet("Agenda")
+            hoje = date.today().strftime("%d/%m/%Y")
+            for r in ws.get_all_records():
+                if str(r['ID_Usuario']) == USER and str(r['Data']) == hoje:
+                    treino = r; break
+        except: pass
+    
+    st.subheader("📅 Treino de Hoje")
+    if treino:
+        st.markdown(f"<div class='highlight-card'><h3>{treino['Tipo']}</h3><p>{treino['Detalhes']}</p></div>", unsafe_allow_html=True)
+    else: st.info("Descanso! 💤")
+
+    st.markdown("---")
+    
+    # MENU INTELIGENTE
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.button("📝 Registrar", on_click=navegar_para, args=("registro",))
+        st.button("📅 Agenda", on_click=navegar_para, args=("agenda",))
+    with c2:
+        st.button("📊 Histórico", on_click=navegar_para, args=("historico",))
+        st.button("🤖 IA Coach", on_click=navegar_para, args=("ia_coach",))
+    with c3:
+        if MODALIDADE == "Corrida":
+            st.button("🏅 Provas", on_click=navegar_para, args=("provas",))
+        
+        if ADMIN:
+             st.markdown('<div class="admin-btn">', unsafe_allow_html=True)
+             st.button("⚙️ ADMIN", on_click=navegar_para, args=("admin_panel",))
+             st.markdown('</div>', unsafe_allow_html=True)
+
+# === REGISTRO INTELIGENTE ===
+elif st.session_state["pagina_atual"] == "registro":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("📝 Registrar Treino")
+    
+    # SE FOR MUSCULAÇÃO
+    if MODALIDADE == "Musculacao":
+        st.info("Confirme a realização do seu treino de hoje.")
+        with st.form("reg_musc"):
+            dt = st.date_input("Data", date.today())
+            obs = st.text_area("Observações (Cargas, sensações, etc)")
+            
+            if st.form_submit_button("✅ CONFIRMAR TREINO REALIZADO"):
+                ss = conectar_gsheets()
+                if ss:
+                    ss.worksheet("Registros").append_row([USER, dt.strftime("%d/%m/%Y"), 0, "00:00", 5, obs])
+                    st.success("Treino de Musculação Registrado!")
+                    time.sleep(1.5); navegar_para("dashboard"); st.rerun()
+
+    # SE FOR CORRIDA
+    else:
+        with st.form("reg_run"):
+            d = st.date_input("Data", date.today())
+            di = st.number_input("Km", 0.0, step=0.1)
+            te = st.text_input("Tempo", "00:00:00")
+            pe = st.slider("Cansaço", 0, 10, 5)
+            ob = st.text_area("Obs")
+            if st.form_submit_button("Salvar Corrida"):
+                ss = conectar_gsheets()
+                if ss: 
+                    ss.worksheet("Registros").append_row([USER, d.strftime("%d/%m/%Y"), di, te, pe, ob])
+                    st.success("Corrida Salva!")
+                    time.sleep(1.5); navegar_para("dashboard"); st.rerun()
+
+# === OUTRAS TELAS ===
+elif st.session_state["pagina_atual"] == "admin_panel":
+    if not ADMIN: navegar_para("dashboard"); st.rerun()
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.title("⚙️ Painel Admin")
+    t1, t2, t3 = st.tabs(["Treinos", "Alunos", "Mensagem"])
+    with t1:
+        with st.form("at"):
+            ss = conectar_gsheets()
+            l = [r['Usuario'] for r in ss.worksheet("Usuarios").get_all_records()] if ss else []
+            u = st.selectbox("Aluno", l); dt = st.date_input("Data"); tp = st.text_input("Tipo/Treino"); det = st.text_area("Detalhes")
+            if st.form_submit_button("Agendar"): ss.worksheet("Agenda").append_row([u, dt.strftime("%d/%m/%Y"), tp, det]); st.success("Feito!")
+    with t2:
+        if ss:
+            ws = ss.worksheet("Usuarios"); df = pd.DataFrame(ws.get_all_records())
+            st.dataframe(df)
+            with st.form("sts"):
+                us = st.selectbox("Aluno", df['Usuario'].tolist()); ns = st.selectbox("Status", ["Ativo", "Bloqueado"])
+                if st.form_submit_button("Atualizar"): 
+                    c = ws.find(us); ws.update_cell(c.row, 5, ns); st.success("Atualizado!"); st.rerun()
+    with t3:
+        with st.form("msg"):
+            us = st.text_input("Destinatario (Login ou TODOS)"); tx = st.text_area("Msg"); tp = st.selectbox("Tipo", ["Aviso", "Motivacional"])
+            if st.form_submit_button("Enviar"): ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp]); st.success("Enviado!")
+
+elif st.session_state["pagina_atual"] == "agenda":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("📅 Agenda")
+    ss = conectar_gsheets()
+    if ss:
+        df = pd.DataFrame(ss.worksheet("Agenda").get_all_records())
+        if not df.empty and 'ID_Usuario' in df.columns:
+            dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
+            if not dfu.empty: st.table(dfu)
+            else: st.info("Sem treinos.")
+
+elif st.session_state["pagina_atual"] == "historico":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("📊 Histórico")
+    ss = conectar_gsheets()
+    if ss:
+        df = pd.DataFrame(ss.worksheet("Registros").get_all_records())
+        if not df.empty and 'ID_Usuario' in df.columns:
+            dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
+            st.dataframe(dfu, use_container_width=True)
+            if MODALIDADE == "Corrida" and "Distancia" in dfu.columns:
+                dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
+                st.line_chart(dfu, x="Data", y="Distancia")
+
+elif st.session_state["pagina_atual"] == "provas":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("🏅 Provas")
+    ss = conectar_gsheets()
+    if ss:
+        df = pd.DataFrame(ss.worksheet("Provas").get_all_records())
+        if not df.empty and 'ID_Usuario' in df.columns:
+            st.dataframe(df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario']), use_container_width=True)
+            with st.form("p"):
+                d = st.date_input("Data"); n = st.text_input("Nome"); di = st.selectbox("km", ["5k","10k","21k"]); 
+                if st.form_submit_button("Add"): ss.worksheet("Provas").append_row([USER, d.strftime("%d/%m/%Y"), n, di, "Pendente", "-"]); st.rerun()
+
+elif st.session_state["pagina_atual"] == "ia_coach":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("🤖 Coach IA")
+    if "openai_key" in st.secrets:
+        client = OpenAI(api_key=st.secrets["openai_key"])
+        if not st.session_state["messages"]:
+            ctx = carregar_contexto_ia()
+            st.session_state["messages"].append({"role": "system", "content": f"Aluno: {NOME} ({MODALIDADE}). Contexto: {ctx}"})
+        for m in st.session_state.messages: 
+            if m["role"] != "system": st.chat_message(m["role"]).write(m["content"])
+        if p := st.chat_input("?"):
+            st.session_state.messages.append({"role": "user", "content": p}); st.chat_message("user").write(p)
+            try:
+                r = client.chat.completions.create(model="gpt-4o", messages=st.session_state.messages)
+                st.session_state.messages.append({"role": "assistant", "content": r.choices[0].message.content})
+                st.chat_message("assistant").write(r.choices[0].message.content)
+            except Exception as e: st.error(e)
