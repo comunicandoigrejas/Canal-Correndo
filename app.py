@@ -59,7 +59,6 @@ st.markdown("""
         color: #856404 !important;
     }
     
-    /* Novo Card de Sucesso (Treino Feito) */
     .success-card {
         background-color: #d4edda;
         padding: 15px;
@@ -93,6 +92,8 @@ if "usuario_atual" not in st.session_state: st.session_state["usuario_atual"] = 
 if "is_admin" not in st.session_state: st.session_state["is_admin"] = False
 if "modalidade" not in st.session_state: st.session_state["modalidade"] = "Corrida" 
 if "messages" not in st.session_state: st.session_state["messages"] = []
+# Nova sessão para o chat do Admin (Assistente)
+if "messages_admin" not in st.session_state: st.session_state["messages_admin"] = []
 
 def navegar_para(pagina): st.session_state["pagina_atual"] = pagina
 
@@ -100,6 +101,7 @@ def logout():
     st.session_state["usuario_atual"] = None
     st.session_state["pagina_atual"] = "login"
     st.session_state["messages"] = []
+    st.session_state["messages_admin"] = []
 
 # --- 3. CONEXÃO E LÓGICA ---
 
@@ -224,28 +226,22 @@ if st.session_state["pagina_atual"] == "dashboard":
         st.markdown(f"<div class='highlight-card'><h3>{treino['Tipo']}</h3><p>{treino['Detalhes']}</p></div>", unsafe_allow_html=True)
     else: st.info("Descanso! 💤")
 
-    # --- NOVIDADE: VERIFICAR SE JÁ TREINOU HOJE ---
+    # Verifica Treino Realizado
     try:
         if ss:
             ws_reg = ss.worksheet("Registros")
             hoje_str = date.today().strftime("%d/%m/%Y")
             records_reg = ws_reg.get_all_records()
-            
-            # Verifica se existe algum registro com ID do usuário e data de hoje
             treinou_hoje = False
             for reg in records_reg:
                 if str(reg['ID_Usuario']) == USER and str(reg['Data']) == hoje_str:
-                    treinou_hoje = True
-                    break
-            
+                    treinou_hoje = True; break
             if treinou_hoje:
                 st.markdown(f"<div class='success-card'>🎉 Parabéns! Treino Realizado com Sucesso!</div>", unsafe_allow_html=True)
     except: pass
-    # ---------------------------------------------
 
     st.markdown("---")
     
-    # Grid Principal
     c1, c2, c3 = st.columns(3)
     with c1:
         st.button("📝 Registrar", on_click=navegar_para, args=("registro",))
@@ -319,9 +315,7 @@ elif st.session_state["pagina_atual"] == "historico":
             
             if not df.empty and 'ID_Usuario' in df.columns:
                 dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
-                
                 if not dfu.empty:
-                    # Visualização
                     if IS_MUSCULACAO:
                         st.metric("Total de Treinos", len(dfu))
                         colunas_musculacao = [c for c in ["Data", "Observacoes"] if c in dfu.columns]
@@ -333,60 +327,42 @@ elif st.session_state["pagina_atual"] == "historico":
                             st.line_chart(dfu, x="Data", y="Distancia")
                     
                     st.markdown("---")
-                    # --- NOVIDADE: EXCLUIR REGISTRO ---
                     with st.expander("🗑️ Gerenciar / Excluir Treinos"):
                         st.warning("Cuidado: A exclusão é permanente.")
-                        
-                        # Cria lista de opções para excluir (Data - Obs)
-                        # Precisamos mapear o ID da linha na planilha original
                         opcoes_exclusao = []
-                        # all_records começa da linha 2 (1 é cabeçalho). O índice da lista começa em 0.
-                        # Logo: Linha Excel = indice_lista + 2
-                        
                         for i, reg in enumerate(all_records):
                             if str(reg['ID_Usuario']) == USER:
                                 label = f"{reg['Data']} - {str(reg.get('Observacoes',''))[:30]}..."
-                                opcoes_exclusao.append((i + 2, label)) # Tupla (Linha, Texto)
-                        
-                        # Inverte para mostrar os mais recentes primeiro
+                                opcoes_exclusao.append((i + 2, label))
                         opcoes_exclusao.reverse()
                         
                         if opcoes_exclusao:
-                            # Selectbox mostra o Texto, mas retorna a Tupla inteira? Não, streamlit retorna o objeto selecionado se passarmos lista de objetos.
-                            # Vamos simplificar: listas separadas
                             labels = [opt[1] for opt in opcoes_exclusao]
                             ids = [opt[0] for opt in opcoes_exclusao]
-                            
                             escolha = st.selectbox("Selecione o treino para apagar:", labels)
-                            
                             if st.button("Confirmar Exclusão"):
-                                # Acha o ID baseado na escolha
                                 index_escolhido = labels.index(escolha)
                                 linha_para_deletar = ids[index_escolhido]
-                                
                                 try:
                                     ws.delete_rows(linha_para_deletar)
                                     st.success("Registro apagado com sucesso!")
-                                    time.sleep(1)
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Erro ao apagar: {e}")
-                        else:
-                            st.info("Nada para excluir.")
-                    # ----------------------------------
-
+                                    time.sleep(1); st.rerun()
+                                except Exception as e: st.error(f"Erro ao apagar: {e}")
+                        else: st.info("Nada para excluir.")
                 else: st.info("Nenhum histórico encontrado.")
             else: st.info("Nenhum registro encontrado.")
         except Exception as e: st.error(f"Erro: {e}")
 
-# === PAINEL ADMIN ===
+# === PAINEL ADMIN (ATUALIZADO COM ASSISTENTE DE ARQUIVOS) ===
 elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.title("⚙️ Painel Admin")
     
     ss = conectar_gsheets()
-    t1, t2, t3, t4 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar"])
+    
+    # 5 Abas: Treinos, Alunos, Mensagem, Monitorar, IA Criadora
+    t1, t2, t3, t4, t5 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar", "🤖 IA Criadora"])
     
     with t1:
         with st.form("at"):
@@ -442,6 +418,93 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                         st.dataframe(df_aluno, use_container_width=True)
                 else: st.warning(f"O aluno {aluno_selecionado} ainda não registrou nenhum treino.")
             else: st.info("Nenhum registro encontrado.")
+    
+    # --- NOVA ABA IA CRIADORA COM ARQUIVOS ---
+    with t5:
+        st.subheader("🤖 Assistente Expert (Com Arquivos)")
+        st.info("Este assistente consulta seus arquivos exclusivos para montar os treinos.")
+        
+        # Verifica ID do Assistente
+        ASSISTANT_ID = st.secrets.get("assistant_id")
+        
+        if not ASSISTANT_ID:
+            st.warning("⚠️ Você precisa adicionar 'assistant_id' no arquivo secrets.toml para usar esta função.")
+        elif ss:
+            ws_users = ss.worksheet("Usuarios")
+            records_users = ws_users.get_all_records()
+            mapa_contexto = {str(r['Usuario']): str(r.get('Modalidade', 'Corrida')) for r in records_users}
+            lista_contexto = list(mapa_contexto.keys())
+            
+            c_aluno, c_obj = st.columns([2, 2])
+            with c_aluno:
+                aluno_foco = st.selectbox("Para qual aluno?", lista_contexto)
+            with c_obj:
+                objetivo_treino = st.text_input("Objetivo deste treino?", placeholder="Ex: Maratona / Hipertrofia")
+            
+            modalidade_foco = mapa_contexto.get(aluno_foco, 'Geral')
+
+            if "openai_key" in st.secrets:
+                client = OpenAI(api_key=st.secrets["openai_key"])
+                
+                # Gerencia Thread
+                if "thread_id" not in st.session_state:
+                    thread = client.beta.threads.create()
+                    st.session_state["thread_id"] = thread.id
+
+                if st.button("🧹 Nova Conversa"):
+                    thread = client.beta.threads.create()
+                    st.session_state["thread_id"] = thread.id
+                    st.session_state["messages_admin"] = []
+                    st.rerun()
+
+                for m in st.session_state.messages_admin:
+                    with st.chat_message(m["role"]):
+                        st.write(m["content"])
+                
+                if botao_gerar := st.button("⚡ Consultar Assistente"):
+                    if not objetivo_treino:
+                        st.warning("Diga o objetivo primeiro.")
+                    else:
+                        prompt_usuario = f"Aluno: {aluno_foco} ({modalidade_foco}). Objetivo: {objetivo_treino}. Monte o treino baseado nos meus arquivos."
+                        
+                        st.session_state.messages_admin.append({"role": "user", "content": prompt_usuario})
+                        with st.chat_message("user"):
+                            st.write(prompt_usuario)
+
+                        try:
+                            with st.spinner("Lendo seus arquivos e gerando treino..."):
+                                # 1. Envia Msg
+                                client.beta.threads.messages.create(
+                                    thread_id=st.session_state["thread_id"],
+                                    role="user",
+                                    content=prompt_usuario
+                                )
+                                # 2. Roda Assistente
+                                run = client.beta.threads.runs.create(
+                                    thread_id=st.session_state["thread_id"],
+                                    assistant_id=ASSISTANT_ID
+                                )
+                                # 3. Aguarda
+                                while run.status in ['queued', 'in_progress', 'cancelling']:
+                                    time.sleep(1)
+                                    run = client.beta.threads.runs.retrieve(
+                                        thread_id=st.session_state["thread_id"],
+                                        run_id=run.id
+                                    )
+                                # 4. Pega Resposta
+                                if run.status == 'completed':
+                                    messages = client.beta.threads.messages.list(
+                                        thread_id=st.session_state["thread_id"]
+                                    )
+                                    # Cuidado com formato de retorno
+                                    full_resp = messages.data[0].content[0].text.value
+                                    
+                                    st.session_state.messages_admin.append({"role": "assistant", "content": full_resp})
+                                    st.rerun()
+                                else:
+                                    st.error(f"Status do assistente: {run.status}")
+                        except Exception as e:
+                            st.error(f"Erro na conexão: {e}")
 
 
 elif st.session_state["pagina_atual"] == "agenda":
@@ -454,7 +517,6 @@ elif st.session_state["pagina_atual"] == "agenda":
             dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
             if not dfu.empty: st.table(dfu)
             else: st.info("Sem treinos.")
-
 
 elif st.session_state["pagina_atual"] == "provas":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
@@ -486,7 +548,6 @@ elif st.session_state["pagina_atual"] == "ia_coach":
                 st.chat_message("assistant").write(r.choices[0].message.content)
             except Exception as e: st.error(e)
 
-# === TELA: TROCAR SENHA ===
 elif st.session_state["pagina_atual"] == "trocar_senha":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("🔑 Alterar Senha")
