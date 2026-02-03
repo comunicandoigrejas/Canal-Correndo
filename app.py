@@ -92,7 +92,6 @@ if "usuario_atual" not in st.session_state: st.session_state["usuario_atual"] = 
 if "is_admin" not in st.session_state: st.session_state["is_admin"] = False
 if "modalidade" not in st.session_state: st.session_state["modalidade"] = "Corrida" 
 if "messages" not in st.session_state: st.session_state["messages"] = []
-# Nova sessão para o chat do Admin (Assistente)
 if "messages_admin" not in st.session_state: st.session_state["messages_admin"] = []
 
 def navegar_para(pagina): st.session_state["pagina_atual"] = pagina
@@ -138,6 +137,8 @@ def carregar_mensagens_usuario(user_id):
             records = ws.get_all_records()
             for row in reversed(records):
                 dest = str(row.get('Destinatario', 'TODOS')).strip()
+                # Mostra se for TODOS ou pro usuario especifico
+                # Ignora mensagens destinadas ao ADMIN
                 if dest in ['TODOS', user_id]:
                     msgs.append(row)
                     if len(msgs) >= 3: break
@@ -199,7 +200,7 @@ if st.session_state["pagina_atual"] == "dashboard":
     c1.title(f"Olá, {NOME}!")
     if c2.button("Sair"): logout(); st.rerun()
 
-    # Avisos
+    # Avisos do Treinador
     try:
         mensagens = carregar_mensagens_usuario(USER)
         for m in mensagens:
@@ -208,6 +209,26 @@ if st.session_state["pagina_atual"] == "dashboard":
             if msg:
                 st.markdown(f"<div class='message-card'><strong>🔔 {tp}:</strong> {msg}</div>", unsafe_allow_html=True)
     except: pass
+
+    # --- CAMPO DE RESPOSTA DO ALUNO (NOVIDADE) ---
+    with st.expander("💬 Falar com o Treinador"):
+        with st.form("form_resposta_aluno"):
+            texto_resp = st.text_area("Digite sua mensagem, dúvida ou feedback:")
+            if st.form_submit_button("Enviar Mensagem"):
+                ss = conectar_gsheets()
+                if ss:
+                    try:
+                        # Salva com Destinatario = ADMIN e Tipo = De: NOME
+                        ss.worksheet("Mensagens").append_row([
+                            date.today().strftime("%d/%m/%Y"), 
+                            "ADMIN", 
+                            texto_resp, 
+                            f"De: {NOME}"
+                        ])
+                        st.success("Mensagem enviada para o treinador!")
+                    except Exception as e:
+                        st.error(f"Erro ao enviar: {e}")
+    # ---------------------------------------------
 
     # Treino de Hoje (Previsto)
     treino = None
@@ -353,7 +374,7 @@ elif st.session_state["pagina_atual"] == "historico":
             else: st.info("Nenhum registro encontrado.")
         except Exception as e: st.error(f"Erro: {e}")
 
-# === PAINEL ADMIN (ATUALIZADO COM ASSISTENTE DE ARQUIVOS) ===
+# === PAINEL ADMIN (ATUALIZADO COM INBOX DE ALUNOS) ===
 elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
@@ -361,7 +382,6 @@ elif st.session_state["pagina_atual"] == "admin_panel":
     
     ss = conectar_gsheets()
     
-    # 5 Abas: Treinos, Alunos, Mensagem, Monitorar, IA Criadora
     t1, t2, t3, t4, t5 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar", "🤖 IA Criadora"])
     
     with t1:
@@ -391,6 +411,22 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                 if st.form_submit_button("Enviar"): 
                     ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp])
                     st.success("Mensagem enviada!")
+            
+            st.markdown("---")
+            # --- INBOX (RESPOSTAS DOS ALUNOS) ---
+            st.subheader("📥 Caixa de Entrada (Respostas)")
+            ws_msg = ss.worksheet("Mensagens")
+            all_msgs = ws_msg.get_all_records()
+            # Filtra onde Destinatario é ADMIN
+            inbox = [m for m in all_msgs if str(m.get('Destinatario','')) == "ADMIN"]
+            
+            if inbox:
+                df_inbox = pd.DataFrame(inbox)
+                # Reordena colunas para ficar melhor de ler
+                cols_order = [c for c in ["Data", "Tipo", "Mensagem"] if c in df_inbox.columns]
+                st.dataframe(df_inbox[cols_order], use_container_width=True)
+            else:
+                st.info("Nenhuma resposta nova.")
 
     with t4:
         st.subheader("Acompanhar Alunos")
@@ -419,12 +455,10 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                 else: st.warning(f"O aluno {aluno_selecionado} ainda não registrou nenhum treino.")
             else: st.info("Nenhum registro encontrado.")
     
-    # --- NOVA ABA IA CRIADORA COM ARQUIVOS ---
     with t5:
         st.subheader("🤖 Assistente Expert (Com Arquivos)")
         st.info("Este assistente consulta seus arquivos exclusivos para montar os treinos.")
         
-        # Verifica ID do Assistente
         ASSISTANT_ID = st.secrets.get("assistant_id")
         
         if not ASSISTANT_ID:
@@ -446,7 +480,6 @@ elif st.session_state["pagina_atual"] == "admin_panel":
             if "openai_key" in st.secrets:
                 client = OpenAI(api_key=st.secrets["openai_key"])
                 
-                # Gerencia Thread
                 if "thread_id" not in st.session_state:
                     thread = client.beta.threads.create()
                     st.session_state["thread_id"] = thread.id
@@ -473,30 +506,25 @@ elif st.session_state["pagina_atual"] == "admin_panel":
 
                         try:
                             with st.spinner("Lendo seus arquivos e gerando treino..."):
-                                # 1. Envia Msg
                                 client.beta.threads.messages.create(
                                     thread_id=st.session_state["thread_id"],
                                     role="user",
                                     content=prompt_usuario
                                 )
-                                # 2. Roda Assistente
                                 run = client.beta.threads.runs.create(
                                     thread_id=st.session_state["thread_id"],
                                     assistant_id=ASSISTANT_ID
                                 )
-                                # 3. Aguarda
                                 while run.status in ['queued', 'in_progress', 'cancelling']:
                                     time.sleep(1)
                                     run = client.beta.threads.runs.retrieve(
                                         thread_id=st.session_state["thread_id"],
                                         run_id=run.id
                                     )
-                                # 4. Pega Resposta
                                 if run.status == 'completed':
                                     messages = client.beta.threads.messages.list(
                                         thread_id=st.session_state["thread_id"]
                                     )
-                                    # Cuidado com formato de retorno
                                     full_resp = messages.data[0].content[0].text.value
                                     
                                     st.session_state.messages_admin.append({"role": "assistant", "content": full_resp})
