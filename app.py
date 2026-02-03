@@ -37,6 +37,22 @@ st.markdown("""
         border: 1px solid #ccc;
         color: #31333F;
     }
+    
+    /* Botão de Fechar (X) Pequeno */
+    .close-btn > button {
+        height: 40px !important;
+        min-height: 40px !important;
+        width: 100% !important;
+        background-color: transparent !important;
+        border: 1px solid #ff4b4b !important;
+        color: #ff4b4b !important;
+        font-size: 16px !important;
+        font-weight: bold !important;
+    }
+    .close-btn > button:hover {
+        background-color: #ff4b4b !important;
+        color: white !important;
+    }
 
     .highlight-card {
         background-color: #f0f2f6;
@@ -55,8 +71,9 @@ st.markdown("""
         padding: 15px;
         border-radius: 10px;
         border-left: 5px solid #ffc107;
-        margin-bottom: 20px;
+        margin-bottom: 5px; /* Reduzi margem para alinhar com botão */
         color: #856404 !important;
+        height: 100%;
     }
     
     .success-card {
@@ -138,12 +155,33 @@ def carregar_mensagens_usuario(user_id):
             for row in reversed(records):
                 dest = str(row.get('Destinatario', 'TODOS')).strip()
                 # Mostra se for TODOS ou pro usuario especifico
-                # Ignora mensagens destinadas ao ADMIN
                 if dest in ['TODOS', user_id]:
                     msgs.append(row)
                     if len(msgs) >= 3: break
         except: pass
     return msgs
+
+# --- FUNÇÃO NOVA: EXCLUIR MENSAGEM ---
+def excluir_aviso(msg_data):
+    ss = conectar_gsheets()
+    if ss:
+        try:
+            ws = ss.worksheet("Mensagens")
+            data = ws.get_all_records()
+            # Procura a linha exata para deletar
+            # O índice no gspread começa em 2 (1 é cabeçalho)
+            for i, row in enumerate(data):
+                # Compara todos os campos para garantir que é a mensagem certa
+                if (str(row.get('Data')) == str(msg_data.get('Data')) and
+                    str(row.get('Destinatario')) == str(msg_data.get('Destinatario')) and
+                    str(row.get('Mensagem')) == str(msg_data.get('Mensagem')) and
+                    str(row.get('Tipo')) == str(msg_data.get('Tipo'))):
+                    
+                    ws.delete_rows(i + 2) # Deleta a linha
+                    return True
+        except Exception as e:
+            st.error(f"Erro ao excluir: {e}")
+    return False
 
 def carregar_contexto_ia():
     try:
@@ -200,17 +238,35 @@ if st.session_state["pagina_atual"] == "dashboard":
     c1.title(f"Olá, {NOME}!")
     if c2.button("Sair"): logout(); st.rerun()
 
-    # Avisos do Treinador
+    # Avisos do Treinador (AGORA COM BOTÃO DE EXCLUIR)
     try:
         mensagens = carregar_mensagens_usuario(USER)
-        for m in mensagens:
-            tp = m.get('Tipo', 'Aviso')
-            msg = m.get('Mensagem', '')
-            if msg:
-                st.markdown(f"<div class='message-card'><strong>🔔 {tp}:</strong> {msg}</div>", unsafe_allow_html=True)
-    except: pass
+        if mensagens:
+            st.subheader("🔔 Avisos")
+            for i, m in enumerate(mensagens):
+                tp = m.get('Tipo', 'Aviso')
+                msg = m.get('Mensagem', '')
+                
+                # Cria colunas: Mensagem (larga) | Botão X (estreito)
+                col_msg, col_x = st.columns([0.85, 0.15])
+                
+                with col_msg:
+                    st.markdown(f"<div class='message-card'><strong>{tp}:</strong> {msg}</div>", unsafe_allow_html=True)
+                
+                with col_x:
+                    # Botão estilizado para deletar
+                    st.markdown('<div class="close-btn">', unsafe_allow_html=True)
+                    if st.button("X", key=f"del_msg_{i}", help="Apagar este aviso"):
+                        if excluir_aviso(m):
+                            st.success("Apagado!")
+                            time.sleep(0.5)
+                            st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("---")
 
-    # --- CAMPO DE RESPOSTA DO ALUNO (NOVIDADE) ---
+    except Exception as e: st.error(f"Erro ao carregar avisos: {e}")
+
+    # --- CAMPO DE RESPOSTA DO ALUNO ---
     with st.expander("💬 Falar com o Treinador"):
         with st.form("form_resposta_aluno"):
             texto_resp = st.text_area("Digite sua mensagem, dúvida ou feedback:")
@@ -218,7 +274,6 @@ if st.session_state["pagina_atual"] == "dashboard":
                 ss = conectar_gsheets()
                 if ss:
                     try:
-                        # Salva com Destinatario = ADMIN e Tipo = De: NOME
                         ss.worksheet("Mensagens").append_row([
                             date.today().strftime("%d/%m/%Y"), 
                             "ADMIN", 
@@ -228,9 +283,8 @@ if st.session_state["pagina_atual"] == "dashboard":
                         st.success("Mensagem enviada para o treinador!")
                     except Exception as e:
                         st.error(f"Erro ao enviar: {e}")
-    # ---------------------------------------------
-
-    # Treino de Hoje (Previsto)
+    
+    # Treino de Hoje
     treino = None
     ss = conectar_gsheets()
     if ss:
@@ -374,7 +428,7 @@ elif st.session_state["pagina_atual"] == "historico":
             else: st.info("Nenhum registro encontrado.")
         except Exception as e: st.error(f"Erro: {e}")
 
-# === PAINEL ADMIN (ATUALIZADO COM INBOX DE ALUNOS) ===
+# === PAINEL ADMIN ===
 elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
@@ -413,20 +467,16 @@ elif st.session_state["pagina_atual"] == "admin_panel":
                     st.success("Mensagem enviada!")
             
             st.markdown("---")
-            # --- INBOX (RESPOSTAS DOS ALUNOS) ---
             st.subheader("📥 Caixa de Entrada (Respostas)")
             ws_msg = ss.worksheet("Mensagens")
             all_msgs = ws_msg.get_all_records()
-            # Filtra onde Destinatario é ADMIN
             inbox = [m for m in all_msgs if str(m.get('Destinatario','')) == "ADMIN"]
             
             if inbox:
                 df_inbox = pd.DataFrame(inbox)
-                # Reordena colunas para ficar melhor de ler
                 cols_order = [c for c in ["Data", "Tipo", "Mensagem"] if c in df_inbox.columns]
                 st.dataframe(df_inbox[cols_order], use_container_width=True)
-            else:
-                st.info("Nenhuma resposta nova.")
+            else: st.info("Nenhuma resposta nova.")
 
     with t4:
         st.subheader("Acompanhar Alunos")
