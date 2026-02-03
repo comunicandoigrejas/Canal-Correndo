@@ -31,7 +31,6 @@ st.markdown("""
         border: 2px solid #ff4b4b;
     }
     
-    /* Botão Menor para Troca de Senha */
     .small-btn > button {
         height: 50px !important;
         background-color: transparent;
@@ -59,23 +58,31 @@ st.markdown("""
         margin-bottom: 20px;
         color: #856404 !important;
     }
+    
+    /* Novo Card de Sucesso (Treino Feito) */
+    .success-card {
+        background-color: #d4edda;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #28a745;
+        margin-bottom: 20px;
+        color: #155724 !important;
+        text-align: center;
+        font-weight: bold;
+        font-size: 18px;
+    }
 
-    /* --- CORREÇÃO DE TABELA (DEFINITIVA) --- */
+    /* --- CORREÇÃO DE TABELA --- */
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) {
-        min-width: 15px !important;
-        white-space: nowrap !important;
+        min-width: 15px !important; white-space: nowrap !important;
     }
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) {
-        min-width: 30px !important;
-        white-space: nowrap !important; 
+        min-width: 30px !important; white-space: nowrap !important; 
     }
     [data-testid="stTable"] th:nth-child(3), [data-testid="stTable"] td:nth-child(3) {
-        min-width: 130px !important;
-        white-space: nowrap !important; 
+        min-width: 130px !important; white-space: nowrap !important; 
     }
-    [data-testid="stTable"] td {
-        vertical-align: top !important;
-    }
+    [data-testid="stTable"] td { vertical-align: top !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,7 +112,6 @@ def conectar_gsheets():
     except Exception as e: st.error(f"Erro: {e}"); return None
 
 def verificar_login(usuario, senha):
-    """Retorna: Nome, Funcao, Modalidade"""
     ss = conectar_gsheets()
     if ss:
         try:
@@ -114,15 +120,12 @@ def verificar_login(usuario, senha):
             for u in records:
                 u_planilha = str(u['Usuario']).strip()
                 s_planilha = str(u['Senha']).strip()
-                
                 if u_planilha == usuario and s_planilha == senha:
                     if str(u.get('Status', 'Ativo')) == 'Bloqueado': return "BLOQUEADO", None, None
                     modalidade_raw = str(u.get('Modalidade', 'Corrida')).strip()
                     return u['Nome'], u.get('Funcao', 'aluno'), modalidade_raw
             return None, None, None
-        except Exception as e: 
-            st.error(f"Erro no Login: {e}")
-            return None, None, None
+        except Exception as e: st.error(f"Erro no Login: {e}"); return None, None, None
     return None, None, None
 
 def carregar_mensagens_usuario(user_id):
@@ -144,28 +147,20 @@ def carregar_contexto_ia():
         with open("treino_contexto.md", "r", encoding="utf-8") as f: return f.read()
     except: return "Sem contexto."
 
-# --- FUNÇÃO NOVA: CALCULAR PACE ---
 def calcular_pace_medio(tempo_str, distancia_km):
     try:
-        # Limpa espaços
         tempo_str = tempo_str.strip()
         parts = list(map(int, tempo_str.split(':')))
-        
         total_min = 0
-        if len(parts) == 3: # HH:MM:SS
-            total_min = parts[0]*60 + parts[1] + parts[2]/60
-        elif len(parts) == 2: # MM:SS
-            total_min = parts[0] + parts[1]/60
-        else:
-            return None
-        
+        if len(parts) == 3: total_min = parts[0]*60 + parts[1] + parts[2]/60
+        elif len(parts) == 2: total_min = parts[0] + parts[1]/60
+        else: return None
         if distancia_km > 0:
             pace_dec = total_min / distancia_km
             pace_min = int(pace_dec)
             pace_sec = int((pace_dec - pace_min) * 60)
             return f"{pace_min:02d}:{pace_sec:02d}"
-    except:
-        return None
+    except: return None
     return None
 
 # --- 4. LOGIN ---
@@ -202,6 +197,7 @@ if st.session_state["pagina_atual"] == "dashboard":
     c1.title(f"Olá, {NOME}!")
     if c2.button("Sair"): logout(); st.rerun()
 
+    # Avisos
     try:
         mensagens = carregar_mensagens_usuario(USER)
         for m in mensagens:
@@ -211,6 +207,7 @@ if st.session_state["pagina_atual"] == "dashboard":
                 st.markdown(f"<div class='message-card'><strong>🔔 {tp}:</strong> {msg}</div>", unsafe_allow_html=True)
     except: pass
 
+    # Treino de Hoje (Previsto)
     treino = None
     ss = conectar_gsheets()
     if ss:
@@ -226,6 +223,25 @@ if st.session_state["pagina_atual"] == "dashboard":
     if treino:
         st.markdown(f"<div class='highlight-card'><h3>{treino['Tipo']}</h3><p>{treino['Detalhes']}</p></div>", unsafe_allow_html=True)
     else: st.info("Descanso! 💤")
+
+    # --- NOVIDADE: VERIFICAR SE JÁ TREINOU HOJE ---
+    try:
+        if ss:
+            ws_reg = ss.worksheet("Registros")
+            hoje_str = date.today().strftime("%d/%m/%Y")
+            records_reg = ws_reg.get_all_records()
+            
+            # Verifica se existe algum registro com ID do usuário e data de hoje
+            treinou_hoje = False
+            for reg in records_reg:
+                if str(reg['ID_Usuario']) == USER and str(reg['Data']) == hoje_str:
+                    treinou_hoje = True
+                    break
+            
+            if treinou_hoje:
+                st.markdown(f"<div class='success-card'>🎉 Parabéns! Treino Realizado com Sucesso!</div>", unsafe_allow_html=True)
+    except: pass
+    # ---------------------------------------------
 
     st.markdown("---")
     
@@ -246,13 +262,12 @@ if st.session_state["pagina_atual"] == "dashboard":
              st.button("⚙️ ADMIN", on_click=navegar_para, args=("admin_panel",))
              st.markdown('</div>', unsafe_allow_html=True)
 
-    # Botão de Troca de Senha
     st.markdown("---")
     st.markdown('<div class="small-btn">', unsafe_allow_html=True)
     st.button("🔑 Alterar Senha", on_click=navegar_para, args=("trocar_senha",))
     st.markdown('</div>', unsafe_allow_html=True)
 
-# === REGISTRO INTELIGENTE (ATUALIZADO COM PACE) ===
+# === REGISTRO INTELIGENTE ===
 elif st.session_state["pagina_atual"] == "registro":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📝 Registrar Treino")
@@ -271,7 +286,6 @@ elif st.session_state["pagina_atual"] == "registro":
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
 
     else:
-        # REGISTRO DE CORRIDA COM CÁLCULO DE PACE
         with st.form("reg_run"):
             d = st.date_input("Data", date.today())
             di = st.number_input("Km", 0.0, step=0.1)
@@ -280,11 +294,8 @@ elif st.session_state["pagina_atual"] == "registro":
             ob = st.text_area("Obs")
             
             if st.form_submit_button("Salvar Corrida"):
-                # Calcula Pace Automaticamente
                 pace_calc = calcular_pace_medio(te, di)
                 msg_sucesso = "Corrida Salva!"
-                
-                # Se calculou o pace, adiciona na Obs e na Mensagem
                 if pace_calc:
                     ob = f"{ob} | Pace Médio: {pace_calc} min/km"
                     msg_sucesso = f"Corrida Salva! Pace Médio: {pace_calc} min/km 🚀"
@@ -294,6 +305,79 @@ elif st.session_state["pagina_atual"] == "registro":
                     ss.worksheet("Registros").append_row([USER, d.strftime("%d/%m/%Y"), di, te, pe, ob])
                     st.success(msg_sucesso)
                     time.sleep(2.5); navegar_para("dashboard"); st.rerun()
+
+# === HISTÓRICO COM EXCLUSÃO ===
+elif st.session_state["pagina_atual"] == "historico":
+    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
+    st.header("📊 Histórico de Treinos")
+    ss = conectar_gsheets()
+    if ss:
+        try:
+            ws = ss.worksheet("Registros")
+            all_records = ws.get_all_records()
+            df = pd.DataFrame(all_records)
+            
+            if not df.empty and 'ID_Usuario' in df.columns:
+                dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
+                
+                if not dfu.empty:
+                    # Visualização
+                    if IS_MUSCULACAO:
+                        st.metric("Total de Treinos", len(dfu))
+                        colunas_musculacao = [c for c in ["Data", "Observacoes"] if c in dfu.columns]
+                        st.dataframe(dfu[colunas_musculacao], use_container_width=True, hide_index=True)
+                    else:
+                        st.dataframe(dfu, use_container_width=True)
+                        if "Distancia" in dfu.columns:
+                            dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
+                            st.line_chart(dfu, x="Data", y="Distancia")
+                    
+                    st.markdown("---")
+                    # --- NOVIDADE: EXCLUIR REGISTRO ---
+                    with st.expander("🗑️ Gerenciar / Excluir Treinos"):
+                        st.warning("Cuidado: A exclusão é permanente.")
+                        
+                        # Cria lista de opções para excluir (Data - Obs)
+                        # Precisamos mapear o ID da linha na planilha original
+                        opcoes_exclusao = []
+                        # all_records começa da linha 2 (1 é cabeçalho). O índice da lista começa em 0.
+                        # Logo: Linha Excel = indice_lista + 2
+                        
+                        for i, reg in enumerate(all_records):
+                            if str(reg['ID_Usuario']) == USER:
+                                label = f"{reg['Data']} - {str(reg.get('Observacoes',''))[:30]}..."
+                                opcoes_exclusao.append((i + 2, label)) # Tupla (Linha, Texto)
+                        
+                        # Inverte para mostrar os mais recentes primeiro
+                        opcoes_exclusao.reverse()
+                        
+                        if opcoes_exclusao:
+                            # Selectbox mostra o Texto, mas retorna a Tupla inteira? Não, streamlit retorna o objeto selecionado se passarmos lista de objetos.
+                            # Vamos simplificar: listas separadas
+                            labels = [opt[1] for opt in opcoes_exclusao]
+                            ids = [opt[0] for opt in opcoes_exclusao]
+                            
+                            escolha = st.selectbox("Selecione o treino para apagar:", labels)
+                            
+                            if st.button("Confirmar Exclusão"):
+                                # Acha o ID baseado na escolha
+                                index_escolhido = labels.index(escolha)
+                                linha_para_deletar = ids[index_escolhido]
+                                
+                                try:
+                                    ws.delete_rows(linha_para_deletar)
+                                    st.success("Registro apagado com sucesso!")
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Erro ao apagar: {e}")
+                        else:
+                            st.info("Nada para excluir.")
+                    # ----------------------------------
+
+                else: st.info("Nenhum histórico encontrado.")
+            else: st.info("Nenhum registro encontrado.")
+        except Exception as e: st.error(f"Erro: {e}")
 
 # === PAINEL ADMIN ===
 elif st.session_state["pagina_atual"] == "admin_panel":
@@ -371,29 +455,6 @@ elif st.session_state["pagina_atual"] == "agenda":
             if not dfu.empty: st.table(dfu)
             else: st.info("Sem treinos.")
 
-elif st.session_state["pagina_atual"] == "historico":
-    st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
-    st.header("📊 Histórico de Treinos")
-    ss = conectar_gsheets()
-    if ss:
-        try:
-            df = pd.DataFrame(ss.worksheet("Registros").get_all_records())
-            if not df.empty and 'ID_Usuario' in df.columns:
-                dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
-                if not dfu.empty:
-                    if IS_MUSCULACAO:
-                        st.metric("Total de Treinos", len(dfu))
-                        colunas_musculacao = [c for c in ["Data", "Observacoes"] if c in dfu.columns]
-                        st.dataframe(dfu[colunas_musculacao], use_container_width=True, hide_index=True)
-                    else:
-                        st.dataframe(dfu, use_container_width=True)
-                        if "Distancia" in dfu.columns:
-                            dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
-                            st.line_chart(dfu, x="Data", y="Distancia")
-                else: st.info("Nenhum histórico encontrado.")
-            else: st.info("Nenhum registro encontrado.")
-        except Exception as e: st.error(f"Erro: {e}")
-
 
 elif st.session_state["pagina_atual"] == "provas":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
@@ -440,13 +501,9 @@ elif st.session_state["pagina_atual"] == "trocar_senha":
             if ss:
                 try:
                     ws = ss.worksheet("Usuarios")
-                    # Busca o usuário
                     cell = ws.find(USER)
-                    
                     if cell:
-                        # Verifica senha antiga (Coluna B = 2)
                         senha_banco = ws.cell(cell.row, 2).value
-                        
                         if str(senha_banco).strip() == senha_atual.strip():
                             if nova_senha == confirma_senha:
                                 if len(nova_senha) > 0:
@@ -455,13 +512,8 @@ elif st.session_state["pagina_atual"] == "trocar_senha":
                                     time.sleep(2)
                                     logout()
                                     st.rerun()
-                                else:
-                                    st.error("A nova senha não pode ser vazia.")
-                            else:
-                                st.error("A nova senha e a confirmação não batem.")
-                        else:
-                            st.error("Senha atual incorreta.")
-                    else:
-                        st.error("Usuário não encontrado.")
-                except Exception as e:
-                    st.error(f"Erro ao alterar senha: {e}")
+                                else: st.error("A nova senha não pode ser vazia.")
+                            else: st.error("A nova senha e a confirmação não batem.")
+                        else: st.error("Senha atual incorreta.")
+                    else: st.error("Usuário não encontrado.")
+                except Exception as e: st.error(f"Erro ao alterar senha: {e}")
