@@ -144,6 +144,30 @@ def carregar_contexto_ia():
         with open("treino_contexto.md", "r", encoding="utf-8") as f: return f.read()
     except: return "Sem contexto."
 
+# --- FUNÇÃO NOVA: CALCULAR PACE ---
+def calcular_pace_medio(tempo_str, distancia_km):
+    try:
+        # Limpa espaços
+        tempo_str = tempo_str.strip()
+        parts = list(map(int, tempo_str.split(':')))
+        
+        total_min = 0
+        if len(parts) == 3: # HH:MM:SS
+            total_min = parts[0]*60 + parts[1] + parts[2]/60
+        elif len(parts) == 2: # MM:SS
+            total_min = parts[0] + parts[1]/60
+        else:
+            return None
+        
+        if distancia_km > 0:
+            pace_dec = total_min / distancia_km
+            pace_min = int(pace_dec)
+            pace_sec = int((pace_dec - pace_min) * 60)
+            return f"{pace_min:02d}:{pace_sec:02d}"
+    except:
+        return None
+    return None
+
 # --- 4. LOGIN ---
 
 if st.session_state["usuario_atual"] is None:
@@ -222,13 +246,13 @@ if st.session_state["pagina_atual"] == "dashboard":
              st.button("⚙️ ADMIN", on_click=navegar_para, args=("admin_panel",))
              st.markdown('</div>', unsafe_allow_html=True)
 
-    # Botão de Troca de Senha (Estilo discreto)
+    # Botão de Troca de Senha
     st.markdown("---")
     st.markdown('<div class="small-btn">', unsafe_allow_html=True)
     st.button("🔑 Alterar Senha", on_click=navegar_para, args=("trocar_senha",))
     st.markdown('</div>', unsafe_allow_html=True)
 
-# === REGISTRO INTELIGENTE ===
+# === REGISTRO INTELIGENTE (ATUALIZADO COM PACE) ===
 elif st.session_state["pagina_atual"] == "registro":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📝 Registrar Treino")
@@ -247,18 +271,29 @@ elif st.session_state["pagina_atual"] == "registro":
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
 
     else:
+        # REGISTRO DE CORRIDA COM CÁLCULO DE PACE
         with st.form("reg_run"):
             d = st.date_input("Data", date.today())
             di = st.number_input("Km", 0.0, step=0.1)
-            te = st.text_input("Tempo", "00:00:00")
+            te = st.text_input("Tempo Total", "00:00:00", help="Formato HH:MM:SS ou MM:SS")
             pe = st.slider("Cansaço", 0, 10, 5)
             ob = st.text_area("Obs")
+            
             if st.form_submit_button("Salvar Corrida"):
+                # Calcula Pace Automaticamente
+                pace_calc = calcular_pace_medio(te, di)
+                msg_sucesso = "Corrida Salva!"
+                
+                # Se calculou o pace, adiciona na Obs e na Mensagem
+                if pace_calc:
+                    ob = f"{ob} | Pace Médio: {pace_calc} min/km"
+                    msg_sucesso = f"Corrida Salva! Pace Médio: {pace_calc} min/km 🚀"
+                
                 ss = conectar_gsheets()
                 if ss: 
                     ss.worksheet("Registros").append_row([USER, d.strftime("%d/%m/%Y"), di, te, pe, ob])
-                    st.success("Corrida Salva!")
-                    time.sleep(1.5); navegar_para("dashboard"); st.rerun()
+                    st.success(msg_sucesso)
+                    time.sleep(2.5); navegar_para("dashboard"); st.rerun()
 
 # === PAINEL ADMIN ===
 elif st.session_state["pagina_atual"] == "admin_panel":
@@ -390,7 +425,7 @@ elif st.session_state["pagina_atual"] == "ia_coach":
                 st.chat_message("assistant").write(r.choices[0].message.content)
             except Exception as e: st.error(e)
 
-# === NOVA TELA: TROCAR SENHA ===
+# === TELA: TROCAR SENHA ===
 elif st.session_state["pagina_atual"] == "trocar_senha":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("🔑 Alterar Senha")
@@ -410,7 +445,6 @@ elif st.session_state["pagina_atual"] == "trocar_senha":
                     
                     if cell:
                         # Verifica senha antiga (Coluna B = 2)
-                        # row=cell.row, col=2
                         senha_banco = ws.cell(cell.row, 2).value
                         
                         if str(senha_banco).strip() == senha_atual.strip():
