@@ -121,13 +121,27 @@ def logout():
 
 # --- 3. CONEXÃO E LÓGICA ---
 
+# --- 3. CONEXÃO E LÓGICA (CORRIGIDO COM CACHE) ---
+
+@st.cache_resource(ttl=600) # <--- O SEGREDO: Guarda a conexão por 10 min
 def conectar_gsheets():
     try:
-        if "gcp_service_account" not in st.secrets: st.warning("Segredos off."); return None
+        if "gcp_service_account" not in st.secrets: 
+            st.warning("Segredos off.")
+            return None
+            
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
-        return gspread.authorize(creds).open("Running_Data")
-    except Exception as e: st.error(f"Erro: {e}"); return None
+        client = gspread.authorize(creds)
+        
+        # Abre a planilha
+        return client.open("Running_Data")
+    except Exception as e: 
+        # Se der erro (ex: limite atingido), espera 2s e limpa o cache para tentar de novo
+        st.error(f"Erro de conexão: {e}. Aguarde um momento...")
+        time.sleep(2)
+        st.cache_resource.clear()
+        return None
 
 def verificar_login(usuario, senha):
     ss = conectar_gsheets()
