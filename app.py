@@ -42,6 +42,7 @@ st.markdown("""
     }
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) { min-width: 15px !important; white-space: nowrap !important; }
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) { min-width: 50px !important; white-space: nowrap !important; }
+     [data-testid="stTable"] th:nth-child(3), [data-testid="stTable"] td:nth-child(3) { min-width: 100px !important; white-space: nowrap !important; }
     [data-testid="stTable"] td { vertical-align: top !important; }
 </style>
 """, unsafe_allow_html=True)
