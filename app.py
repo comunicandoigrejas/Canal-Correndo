@@ -40,7 +40,7 @@ st.markdown("""
         border-left: 5px solid #28a745; margin-bottom: 20px; color: #155724 !important;
         text-align: center; font-weight: bold; font-size: 18px;
     }
-    [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) { min-width: 15px !important; white-space: nowrap !important; }
+    [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) { min-width: 40px !important; white-space: nowrap !important; }
     [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) { min-width: 50px !important; white-space: nowrap !important; }
     [data-testid="stTable"] td { vertical-align: top !important; }
 </style>
