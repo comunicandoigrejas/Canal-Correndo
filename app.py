@@ -1,6 +1,6 @@
 import streamlit as st
 import datetime
-from datetime import date
+from datetime import date, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from openai import OpenAI
@@ -41,13 +41,24 @@ st.markdown("""
         text-align: center; font-weight: bold; font-size: 18px;
     }
     [data-testid="stTable"] th:nth-child(1), [data-testid="stTable"] td:nth-child(1) { min-width: 15px !important; white-space: nowrap !important; }
-    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) { min-width: 50px !important; white-space: nowrap !important; }
-    [data-testid="stTable"] th:nth-child(3), [data-testid="stTable"] td:nth-child(3) { min-width: 100px !important; white-space: nowrap !important; }
+    [data-testid="stTable"] th:nth-child(2), [data-testid="stTable"] td:nth-child(2) { min-width: 30px !important; white-space: nowrap !important; }
     [data-testid="stTable"] td { vertical-align: top !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. GERENCIAMENTO DE SESSÃO ---
+# --- 2. CONFIGURAÇÃO DE FUSO HORÁRIO (CORREÇÃO BRASÍLIA) ---
+# Cria o fuso horário UTC-3 (Brasília)
+FUSO_BR = timezone(timedelta(hours=-3))
+
+def data_hoje_br():
+    """Retorna a data de hoje correta no fuso de Brasília"""
+    return datetime.datetime.now(FUSO_BR).date()
+
+def data_hora_br():
+    """Retorna data e hora atuais em Brasília"""
+    return datetime.datetime.now(FUSO_BR)
+
+# --- 3. GERENCIAMENTO DE SESSÃO ---
 
 if "pagina_atual" not in st.session_state: st.session_state["pagina_atual"] = "login"
 if "usuario_atual" not in st.session_state: st.session_state["usuario_atual"] = None
@@ -64,7 +75,7 @@ def logout():
     st.session_state["messages"] = []
     st.session_state["messages_admin"] = []
 
-# --- 3. CONEXÃO E LÓGICA (COM CACHE) ---
+# --- 4. CONEXÃO E LÓGICA (COM CACHE E PROTEÇÃO) ---
 
 @st.cache_resource(ttl=600)
 def conectar_gsheets():
@@ -82,35 +93,37 @@ def conectar_gsheets():
         st.cache_resource.clear()
         return None
 
-def verificar_login(usuario, senha):
+def safe_get_records(worksheet_name):
+    """Função segura para ler dados sem quebrar o app"""
     ss = conectar_gsheets()
-    if ss:
+    if not ss: return []
+    try:
+        ws = ss.worksheet(worksheet_name)
+        return ws.get_all_records()
+    except Exception:
+        return []
+
+def verificar_login(usuario, senha):
+    records = safe_get_records("Usuarios")
+    for u in records:
         try:
-            ws = ss.worksheet("Usuarios")
-            records = ws.get_all_records()
-            for u in records:
-                u_planilha = str(u['Usuario']).strip()
-                s_planilha = str(u['Senha']).strip()
-                if u_planilha == usuario and s_planilha == senha:
-                    if str(u.get('Status', 'Ativo')) == 'Bloqueado': return "BLOQUEADO", None, None
-                    modalidade_raw = str(u.get('Modalidade', 'Corrida')).strip()
-                    return u['Nome'], u.get('Funcao', 'aluno'), modalidade_raw
-            return None, None, None
-        except Exception as e: st.error(f"Erro no Login: {e}"); return None, None, None
+            u_planilha = str(u.get('Usuario', '')).strip()
+            s_planilha = str(u.get('Senha', '')).strip()
+            if u_planilha == usuario and s_planilha == senha:
+                if str(u.get('Status', 'Ativo')) == 'Bloqueado': return "BLOQUEADO", None, None
+                modalidade_raw = str(u.get('Modalidade', 'Corrida')).strip()
+                return u.get('Nome', 'Aluno'), u.get('Funcao', 'aluno'), modalidade_raw
+        except: continue
     return None, None, None
 
 def carregar_mensagens_usuario(user_id):
-    ss = conectar_gsheets(); msgs = []
-    if ss:
-        try:
-            ws = ss.worksheet("Mensagens")
-            records = ws.get_all_records()
-            for row in reversed(records):
-                dest = str(row.get('Destinatario', 'TODOS')).strip()
-                if dest in ['TODOS', user_id]:
-                    msgs.append(row)
-                    if len(msgs) >= 3: break
-        except: pass
+    records = safe_get_records("Mensagens")
+    msgs = []
+    for row in reversed(records):
+        dest = str(row.get('Destinatario', 'TODOS')).strip()
+        if dest in ['TODOS', user_id]:
+            msgs.append(row)
+            if len(msgs) >= 3: break
     return msgs
 
 def excluir_aviso(msg_data):
@@ -122,11 +135,10 @@ def excluir_aviso(msg_data):
             for i, row in enumerate(data):
                 if (str(row.get('Data')) == str(msg_data.get('Data')) and
                     str(row.get('Destinatario')) == str(msg_data.get('Destinatario')) and
-                    str(row.get('Mensagem')) == str(msg_data.get('Mensagem')) and
-                    str(row.get('Tipo')) == str(msg_data.get('Tipo'))):
+                    str(row.get('Mensagem')) == str(msg_data.get('Mensagem'))):
                     ws.delete_rows(i + 2)
                     return True
-        except Exception as e: st.error(f"Erro ao excluir: {e}")
+        except: pass
     return False
 
 def carregar_contexto_ia():
@@ -150,7 +162,7 @@ def calcular_pace_medio(tempo_str, distancia_km):
     except: return None
     return None
 
-# --- 4. LOGIN ---
+# --- 5. TELA DE LOGIN ---
 
 if st.session_state["usuario_atual"] is None:
     st.title("🏃 Running Coach")
@@ -170,7 +182,7 @@ if st.session_state["usuario_atual"] is None:
             else: st.error("Dados incorretos.")
     st.stop()
 
-# --- 5. APP PRINCIPAL ---
+# --- 6. APP PRINCIPAL ---
 
 USER = st.session_state["usuario_atual"]
 NOME = st.session_state["nome_usuario"]
@@ -184,72 +196,63 @@ if st.session_state["pagina_atual"] == "dashboard":
     c1.title(f"Olá, {NOME}!")
     if c2.button("Sair"): logout(); st.rerun()
 
-    # Avisos do Treinador
-    try:
-        mensagens = carregar_mensagens_usuario(USER)
-        if mensagens:
-            st.subheader("🔔 Avisos")
-            for i, m in enumerate(mensagens):
-                tp = m.get('Tipo', 'Aviso')
-                msg = m.get('Mensagem', '')
-                
-                col_msg, col_x = st.columns([0.85, 0.15])
-                with col_msg:
-                    st.markdown(f"<div class='message-card'><strong>{tp}:</strong> {msg}</div>", unsafe_allow_html=True)
-                with col_x:
-                    st.markdown('<div class="close-btn">', unsafe_allow_html=True)
-                    if st.button("X", key=f"del_msg_{i}", help="Apagar"):
-                        if excluir_aviso(m):
-                            st.success("Apagado!")
-                            time.sleep(0.5); st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown("---")
-    except Exception as e: st.error(f"Erro ao carregar avisos: {e}")
+    # Avisos
+    msgs = carregar_mensagens_usuario(USER)
+    if msgs:
+        st.subheader("🔔 Avisos")
+        for i, m in enumerate(msgs):
+            tp = m.get('Tipo', 'Aviso')
+            msg = m.get('Mensagem', '')
+            col_msg, col_x = st.columns([0.85, 0.15])
+            with col_msg:
+                st.markdown(f"<div class='message-card'><strong>{tp}:</strong> {msg}</div>", unsafe_allow_html=True)
+            with col_x:
+                st.markdown('<div class="close-btn">', unsafe_allow_html=True)
+                if st.button("X", key=f"d{i}"):
+                    if excluir_aviso(m):
+                        st.success("Apagado!")
+                        time.sleep(0.5); st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("---")
 
-    # Resposta Aluno
+    # Resposta Aluno (DATA CORRIGIDA)
     with st.expander("💬 Falar com o Treinador"):
-        with st.form("form_resposta_aluno"):
-            texto_resp = st.text_area("Mensagem:")
+        with st.form("form_resp"):
+            tx = st.text_area("Mensagem:")
             if st.form_submit_button("Enviar"):
                 ss = conectar_gsheets()
                 if ss:
                     try:
                         ss.worksheet("Mensagens").append_row([
-                            date.today().strftime("%d/%m/%Y"), "ADMIN", texto_resp, f"De: {NOME}"
+                            data_hoje_br().strftime("%d/%m/%Y"), # <--- Data BR
+                            "ADMIN", 
+                            tx, 
+                            f"De: {NOME}"
                         ])
                         st.success("Enviado!")
-                    except Exception as e: st.error(e)
+                    except: st.error("Erro ao enviar")
     
-    # Treino de Hoje
+    # Treino de Hoje (DATA CORRIGIDA)
     treino = None
-    ss = conectar_gsheets()
-    if ss:
-        try:
-            ws = ss.worksheet("Agenda")
-            hoje = date.today().strftime("%d/%m/%Y")
-            for r in ws.get_all_records():
-                if str(r['ID_Usuario']) == USER and str(r['Data']) == hoje:
-                    treino = r; break
-        except: pass
+    agenda_records = safe_get_records("Agenda")
+    hoje = data_hoje_br().strftime("%d/%m/%Y") # <--- Data BR
+    for r in agenda_records:
+        if str(r.get('ID_Usuario')) == USER and str(r.get('Data')) == hoje:
+            treino = r; break
     
     st.subheader("📅 Treino de Hoje")
     if treino:
-        st.markdown(f"<div class='highlight-card'><h3>{treino['Tipo']}</h3><p>{treino['Detalhes']}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='highlight-card'><h3>{treino.get('Tipo','Treino')}</h3><p>{treino.get('Detalhes','')}</p></div>", unsafe_allow_html=True)
     else: st.info("Descanso! 💤")
 
-    # Verifica se treinou
-    try:
-        if ss:
-            ws_reg = ss.worksheet("Registros")
-            hoje_str = date.today().strftime("%d/%m/%Y")
-            records_reg = ws_reg.get_all_records()
-            treinou_hoje = False
-            for reg in records_reg:
-                if str(reg['ID_Usuario']) == USER and str(reg['Data']) == hoje_str:
-                    treinou_hoje = True; break
-            if treinou_hoje:
-                st.markdown(f"<div class='success-card'>🎉 Parabéns! Treino Realizado!</div>", unsafe_allow_html=True)
-    except: pass
+    # Verifica Treino Realizado (DATA CORRIGIDA)
+    reg_records = safe_get_records("Registros")
+    treinou_hoje = False
+    for reg in reg_records:
+        if str(reg.get('ID_Usuario')) == USER and str(reg.get('Data')) == hoje:
+            treinou_hoje = True; break
+    if treinou_hoje:
+        st.markdown(f"<div class='success-card'>🎉 Parabéns! Treino Realizado!</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     
@@ -273,7 +276,7 @@ if st.session_state["pagina_atual"] == "dashboard":
     st.button("🔑 Alterar Senha", on_click=navegar_para, args=("trocar_senha",))
     st.markdown('</div>', unsafe_allow_html=True)
 
-# === REGISTRO INTELIGENTE ===
+# === REGISTRO INTELIGENTE (DATA CORRIGIDA) ===
 elif st.session_state["pagina_atual"] == "registro":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📝 Registrar Treino")
@@ -281,7 +284,7 @@ elif st.session_state["pagina_atual"] == "registro":
     if IS_MUSCULACAO:
         st.info("Confirme a realização do seu treino de força.")
         with st.form("reg_musc"):
-            dt = st.date_input("Data", date.today())
+            dt = st.date_input("Data", data_hoje_br()) # <--- Padrão Hoje BR
             obs = st.text_area("Observações (Cargas, sensações, etc)")
             if st.form_submit_button("✅ CONFIRMAR TREINO REALIZADO"):
                 ss = conectar_gsheets()
@@ -291,9 +294,9 @@ elif st.session_state["pagina_atual"] == "registro":
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
     else:
         with st.form("reg_run"):
-            d = st.date_input("Data", date.today())
+            d = st.date_input("Data", data_hoje_br()) # <--- Padrão Hoje BR
             di = st.number_input("Km", 0.0, step=0.1)
-            te = st.text_input("Tempo Total", "00:00:00", help="HH:MM:SS ou MM:SS")
+            te = st.text_input("Tempo Total", "00:00:00", help="HH:MM:SS")
             pe = st.slider("Cansaço", 0, 10, 5)
             ob = st.text_area("Obs")
             if st.form_submit_button("Salvar Corrida"):
@@ -305,230 +308,175 @@ elif st.session_state["pagina_atual"] == "registro":
                     st.success("Salvo!")
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
 
-# === HISTÓRICO COM EXCLUSÃO ===
+# === HISTÓRICO ===
 elif st.session_state["pagina_atual"] == "historico":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📊 Histórico")
-    ss = conectar_gsheets()
-    if ss:
-        try:
-            ws = ss.worksheet("Registros")
-            all_records = ws.get_all_records()
-            df = pd.DataFrame(all_records)
+    all_records = safe_get_records("Registros")
+    df = pd.DataFrame(all_records)
+    
+    if not df.empty and 'ID_Usuario' in df.columns:
+        dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
+        if not dfu.empty:
+            if IS_MUSCULACAO:
+                st.metric("Total de Treinos", len(dfu))
+                cols_view = [c for c in ["Data", "Observacoes"] if c in dfu.columns]
+                st.dataframe(dfu[cols_view], use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(dfu, use_container_width=True)
+                if "Distancia" in dfu.columns:
+                    dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
+                    st.line_chart(dfu, x="Data", y="Distancia")
             
-            if not df.empty and 'ID_Usuario' in df.columns:
-                dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
-                if not dfu.empty:
-                    if IS_MUSCULACAO:
-                        st.metric("Total de Treinos", len(dfu))
-                        colunas_musc = [c for c in ["Data", "Observacoes"] if c in dfu.columns]
-                        st.dataframe(dfu[colunas_musc], use_container_width=True, hide_index=True)
-                    else:
-                        st.dataframe(dfu, use_container_width=True)
-                        if "Distancia" in dfu.columns:
-                            dfu["Distancia"] = pd.to_numeric(dfu["Distancia"].astype(str).str.replace(',','.'), errors='coerce')
-                            st.line_chart(dfu, x="Data", y="Distancia")
-                    
-                    st.markdown("---")
-                    with st.expander("🗑️ Gerenciar / Excluir Treinos"):
-                        st.warning("Cuidado: A exclusão é permanente.")
-                        opcoes_exclusao = []
-                        for i, reg in enumerate(all_records):
-                            if str(reg['ID_Usuario']) == USER:
-                                label = f"{reg['Data']} - {str(reg.get('Observacoes',''))[:30]}..."
-                                opcoes_exclusao.append((i + 2, label))
-                        opcoes_exclusao.reverse()
-                        
-                        if opcoes_exclusao:
-                            labels = [opt[1] for opt in opcoes_exclusao]
-                            ids = [opt[0] for opt in opcoes_exclusao]
-                            escolha = st.selectbox("Selecione para apagar:", labels)
-                            if st.button("Confirmar Exclusão"):
-                                idx = labels.index(escolha)
-                                row_del = ids[idx]
-                                try:
-                                    ws.delete_rows(row_del)
-                                    st.success("Apagado!"); time.sleep(1); st.rerun()
-                                except Exception as e: st.error(f"Erro: {e}")
-                        else: st.info("Nada para excluir.")
-                else: st.info("Nenhum histórico.")
-            else: st.info("Nenhum registro.")
-        except Exception as e: st.error(f"Erro: {e}")
+            st.markdown("---")
+            with st.expander("🗑️ Excluir Treinos"):
+                st.warning("A exclusão é permanente.")
+                opts = []
+                for i, reg in enumerate(all_records):
+                    if str(reg.get('ID_Usuario')) == USER:
+                        opts.append((i + 2, f"{reg.get('Data')} - {str(reg.get('Observacoes',''))[:20]}"))
+                opts.reverse()
+                if opts:
+                    labels = [o[1] for o in opts]
+                    ids = [o[0] for o in opts]
+                    sel = st.selectbox("Apagar:", labels)
+                    if st.button("Confirmar Exclusão"):
+                        ss = conectar_gsheets()
+                        if ss:
+                            try:
+                                ss.worksheet("Registros").delete_rows(ids[labels.index(sel)])
+                                st.success("Apagado!"); time.sleep(1); st.rerun()
+                            except: st.error("Erro")
+                else: st.info("Nada para excluir.")
+        else: st.info("Sem histórico.")
+    else: st.info("Sem registros.")
 
-# === PAINEL ADMIN ===
+# === ADMIN (DATA CORRIGIDA) ===
 elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.title("⚙️ Painel Admin")
     
     ss = conectar_gsheets()
-    t1, t2, t3, t4, t5 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar", "🤖 IA Criadora"])
+    t1, t2, t3, t4, t5 = st.tabs(["Treinos", "Alunos", "Mensagem", "🔎 Monitorar", "🤖 IA"])
     
     with t1:
         with st.form("at"):
-            l = [r['Usuario'] for r in ss.worksheet("Usuarios").get_all_records()] if ss else []
-            u = st.selectbox("Aluno", l); dt = st.date_input("Data"); tp = st.text_input("Tipo/Treino"); det = st.text_area("Detalhes")
-            if st.form_submit_button("Agendar"): ss.worksheet("Agenda").append_row([u, dt.strftime("%d/%m/%Y"), tp, det]); st.success("Feito!")
+            users = safe_get_records("Usuarios")
+            l = [r['Usuario'] for r in users]
+            u = st.selectbox("Aluno", l); dt = st.date_input("Data", data_hoje_br()); tp = st.text_input("Tipo"); det = st.text_area("Detalhes") # <--- Data BR
+            if st.form_submit_button("Agendar"): 
+                if ss: ss.worksheet("Agenda").append_row([u, dt.strftime("%d/%m/%Y"), tp, det]); st.success("Feito!")
     
     with t2:
-        if ss:
-            ws = ss.worksheet("Usuarios"); df = pd.DataFrame(ws.get_all_records())
-            st.dataframe(df)
-            with st.form("sts"):
-                us = st.selectbox("Aluno", df['Usuario'].tolist()); ns = st.selectbox("Status", ["Ativo", "Bloqueado"])
-                if st.form_submit_button("Atualizar"): 
+        users = safe_get_records("Usuarios")
+        df = pd.DataFrame(users)
+        st.dataframe(df)
+        with st.form("sts"):
+            us = st.selectbox("Aluno", [u['Usuario'] for u in users] if users else []); ns = st.selectbox("Status", ["Ativo", "Bloqueado"])
+            if st.form_submit_button("Atualizar"): 
+                if ss: 
+                    ws = ss.worksheet("Usuarios")
                     c = ws.find(us); ws.update_cell(c.row, 5, ns); st.success("Atualizado!"); st.rerun()
     
     with t3:
-        st.subheader("📢 Enviar Mensagem")
-        if ss:
-            ws_users = ss.worksheet("Usuarios")
-            lista_dest = ["TODOS"] + [r['Usuario'] for r in ws_users.get_all_records()]
-            with st.form("msg"):
-                us = st.selectbox("Destinatário", lista_dest)
-                tx = st.text_area("Mensagem")
-                tp = st.selectbox("Tipo", ["Aviso Geral", "Motivacional", "Cobrança", "Parabéns", "Dica Técnica"])
-                if st.form_submit_button("Enviar"): 
-                    ss.worksheet("Mensagens").append_row([date.today().strftime("%d/%m/%Y"), us, tx, tp])
-                    st.success("Enviado!")
-            
-            st.markdown("---")
-            st.subheader("📥 Caixa de Entrada")
-            ws_msg = ss.worksheet("Mensagens")
-            all_msgs = ws_msg.get_all_records()
-            inbox = [m for m in all_msgs if str(m.get('Destinatario','')) == "ADMIN"]
-            if inbox:
-                df_inbox = pd.DataFrame(inbox)
-                cols = [c for c in ["Data", "Tipo", "Mensagem"] if c in df_inbox.columns]
-                st.dataframe(df_inbox[cols], use_container_width=True)
-            else: st.info("Nenhuma resposta.")
+        st.subheader("📢 Enviar")
+        users = safe_get_records("Usuarios")
+        dest = ["TODOS"] + [u['Usuario'] for u in users]
+        with st.form("msg"):
+            us = st.selectbox("Para", dest); tx = st.text_area("Msg"); tp = st.selectbox("Tipo", ["Aviso Geral", "Motivacional", "Cobrança"])
+            if st.form_submit_button("Enviar"): 
+                if ss: ss.worksheet("Mensagens").append_row([data_hoje_br().strftime("%d/%m/%Y"), us, tx, tp]); st.success("Enviado!") # <--- Data BR
+        
+        st.subheader("📥 Recebidas")
+        msgs = safe_get_records("Mensagens")
+        inbox = [m for m in msgs if str(m.get('Destinatario')) == "ADMIN"]
+        if inbox: st.dataframe(pd.DataFrame(inbox))
+        else: st.info("Nenhuma msg.")
 
     with t4:
-        st.subheader("Acompanhar Alunos")
-        if ss:
-            ws_users = ss.worksheet("Usuarios")
-            records_users = ws_users.get_all_records()
-            mapa_modalidades = {str(r['Usuario']): str(r.get('Modalidade', 'Corrida')) for r in records_users}
-            lista_alunos = list(mapa_modalidades.keys())
-            
-            aluno_selecionado = st.selectbox("Selecione o Aluno:", lista_alunos)
-            modalidade_aluno = mapa_modalidades.get(aluno_selecionado, 'Corrida')
-            is_musc_aluno = "muscula" in modalidade_aluno.lower()
+        st.subheader("Monitorar")
+        users = safe_get_records("Usuarios")
+        map_mod = {str(r['Usuario']): str(r.get('Modalidade', 'Corrida')) for r in users}
+        sel = st.selectbox("Aluno:", list(map_mod.keys()) if map_mod else [])
+        
+        recs = safe_get_records("Registros")
+        df_reg = pd.DataFrame(recs)
+        if not df_reg.empty and 'ID_Usuario' in df_reg.columns:
+            df_aluno = df_reg[df_reg['ID_Usuario'] == sel].drop(columns=['ID_Usuario'])
+            if not df_aluno.empty:
+                st.write(f"Histórico ({map_mod.get(sel, '')}):")
+                st.dataframe(df_aluno, use_container_width=True)
+            else: st.warning("Sem treinos.")
+        else: st.info("Sem dados.")
 
-            ws_reg = ss.worksheet("Registros")
-            df_reg = pd.DataFrame(ws_reg.get_all_records())
-            
-            if not df_reg.empty and 'ID_Usuario' in df_reg.columns:
-                df_aluno = df_reg[df_reg['ID_Usuario'] == aluno_selecionado].drop(columns=['ID_Usuario'])
-                if not df_aluno.empty:
-                    st.write(f"**Histórico de {aluno_selecionado} ({modalidade_aluno}):**")
-                    if is_musc_aluno:
-                        cols_view = [c for c in ["Data", "Observacoes"] if c in df_aluno.columns]
-                        st.dataframe(df_aluno[cols_view], use_container_width=True, hide_index=True)
-                    else:
-                        st.dataframe(df_aluno, use_container_width=True)
-                else: st.warning(f"Sem registros.")
-            else: st.info("Sem registros.")
-    
-    # --- ABA 5: IA CHAT CORRIGIDO ---
     with t5:
         st.subheader("🤖 Assistente Expert (Chat)")
-        st.info("Converse com sua IA Treinada.")
-        
         ASSISTANT_ID = st.secrets.get("assistant_id")
-        
-        if not ASSISTANT_ID:
-            st.warning("Falta 'assistant_id' no secrets.toml.")
+        if not ASSISTANT_ID: st.warning("Configure assistant_id nos secrets.")
         elif ss:
-            ws_users = ss.worksheet("Usuarios")
-            records_users = ws_users.get_all_records()
-            mapa_contexto = {str(r['Usuario']): str(r.get('Modalidade', 'Corrida')) for r in records_users}
-            lista_contexto = list(mapa_contexto.keys())
+            users = safe_get_records("Usuarios")
+            map_mod = {str(r['Usuario']): str(r.get('Modalidade', 'Corrida')) for r in users}
+            sel = st.selectbox("Contexto Aluno:", list(map_mod.keys()) if map_mod else [])
             
-            aluno_foco = st.selectbox("Foco no aluno:", lista_contexto)
-            modalidade_foco = mapa_contexto.get(aluno_foco, 'Geral')
-
             if "openai_key" in st.secrets:
                 client = OpenAI(api_key=st.secrets["openai_key"])
-                
                 if "thread_id" not in st.session_state:
-                    thread = client.beta.threads.create()
-                    st.session_state["thread_id"] = thread.id
-
-                if st.button("🧹 Limpar Chat"):
-                    thread = client.beta.threads.create()
-                    st.session_state["thread_id"] = thread.id
-                    st.session_state["messages_admin"] = []
-                    st.rerun()
-
-                # Mostra histórico
-                for m in st.session_state.messages_admin:
-                    with st.chat_message(m["role"]):
-                        st.write(m["content"])
+                    th = client.beta.threads.create(); st.session_state["thread_id"] = th.id
                 
-                # --- CHAT INPUT CORRIGIDO ---
-                if prompt := st.chat_input("Converse com a IA (Ex: Monte o treino de perna)"):
-                    st.session_state.messages_admin.append({"role": "user", "content": prompt})
-                    with st.chat_message("user"):
-                        st.write(prompt)
+                if st.button("Limpar Chat"):
+                    th = client.beta.threads.create(); st.session_state["thread_id"] = th.id
+                    st.session_state["messages_admin"] = []; st.rerun()
 
-                    full_prompt = f"Contexto: Aluno {aluno_foco} ({modalidade_foco}). Mensagem: {prompt}"
-
+                for m in st.session_state.messages_admin:
+                    with st.chat_message(m["role"]): st.write(m["content"])
+                
+                if p := st.chat_input("Mensagem para IA:"):
+                    st.session_state.messages_admin.append({"role": "user", "content": p})
+                    with st.chat_message("user"): st.write(p)
+                    
+                    full_p = f"Contexto: Aluno {sel} ({map_mod.get(sel)}). Msg: {p}"
                     try:
                         with st.spinner("IA pensando..."):
-                            client.beta.threads.messages.create(
-                                thread_id=st.session_state["thread_id"],
-                                role="user",
-                                content=full_prompt
-                            )
-                            run = client.beta.threads.runs.create(
-                                thread_id=st.session_state["thread_id"],
-                                assistant_id=ASSISTANT_ID
-                            )
+                            client.beta.threads.messages.create(thread_id=st.session_state["thread_id"], role="user", content=full_p)
+                            run = client.beta.threads.runs.create(thread_id=st.session_state["thread_id"], assistant_id=ASSISTANT_ID)
                             while run.status in ['queued', 'in_progress', 'cancelling']:
-                                time.sleep(1)
-                                run = client.beta.threads.runs.retrieve(
-                                    thread_id=st.session_state["thread_id"],
-                                    run_id=run.id
-                                )
+                                time.sleep(1); run = client.beta.threads.runs.retrieve(thread_id=st.session_state["thread_id"], run_id=run.id)
                             
                             if run.status == 'completed':
-                                messages = client.beta.threads.messages.list(
-                                    thread_id=st.session_state["thread_id"]
-                                )
-                                resp = messages.data[0].content[0].text.value
-                                
+                                msgs = client.beta.threads.messages.list(thread_id=st.session_state["thread_id"])
+                                resp = msgs.data[0].content[0].text.value
                                 st.session_state.messages_admin.append({"role": "assistant", "content": resp})
-                                with st.chat_message("assistant"):
-                                    st.write(resp)
-                            else:
-                                st.error(f"Erro IA: {run.status}")
-                    except Exception as e:
-                        st.error(f"Erro conexão: {e}")
+                                with st.chat_message("assistant"): st.write(resp)
+                    except Exception as e: st.error(f"Erro: {e}")
 
+# === AGENDA ===
 elif st.session_state["pagina_atual"] == "agenda":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📅 Agenda")
-    ss = conectar_gsheets()
-    if ss:
-        df = pd.DataFrame(ss.worksheet("Agenda").get_all_records())
-        if not df.empty and 'ID_Usuario' in df.columns:
-            dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
-            if not dfu.empty: st.table(dfu)
-            else: st.info("Sem treinos.")
+    recs = safe_get_records("Agenda")
+    df = pd.DataFrame(recs)
+    if not df.empty and 'ID_Usuario' in df.columns:
+        dfu = df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario'])
+        if not dfu.empty: st.table(dfu)
+        else: st.info("Sem treinos.")
+    else: st.info("Sem dados.")
 
+# === PROVAS (DATA CORRIGIDA) ===
 elif st.session_state["pagina_atual"] == "provas":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("🏅 Provas")
-    ss = conectar_gsheets()
-    if ss:
-        df = pd.DataFrame(ss.worksheet("Provas").get_all_records())
-        if not df.empty and 'ID_Usuario' in df.columns:
-            st.dataframe(df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario']), use_container_width=True)
-            with st.form("p"):
-                d = st.date_input("Data"); n = st.text_input("Nome"); di = st.selectbox("km", ["5k","10k","21k"]); 
-                if st.form_submit_button("Add"): ss.worksheet("Provas").append_row([USER, d.strftime("%d/%m/%Y"), n, di, "Pendente", "-"]); st.rerun()
+    recs = safe_get_records("Provas")
+    df = pd.DataFrame(recs)
+    if not df.empty and 'ID_Usuario' in df.columns:
+        st.dataframe(df[df['ID_Usuario'] == USER].drop(columns=['ID_Usuario']), use_container_width=True)
+    with st.form("p"):
+        d = st.date_input("Data", data_hoje_br()); n = st.text_input("Nome"); di = st.selectbox("km", ["5k","10k","21k"]); 
+        if st.form_submit_button("Add"): 
+            ss = conectar_gsheets()
+            if ss: ss.worksheet("Provas").append_row([USER, d.strftime("%d/%m/%Y"), n, di, "Pendente", "-"]); st.rerun()
 
+# === IA ALUNO ===
 elif st.session_state["pagina_atual"] == "ia_coach":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("🤖 Coach IA")
@@ -547,26 +495,21 @@ elif st.session_state["pagina_atual"] == "ia_coach":
                 st.chat_message("assistant").write(r.choices[0].message.content)
             except Exception as e: st.error(e)
 
+# === TROCAR SENHA ===
 elif st.session_state["pagina_atual"] == "trocar_senha":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("🔑 Alterar Senha")
     with st.form("form_senha"):
-        senha_atual = st.text_input("Senha Atual", type="password")
-        nova_senha = st.text_input("Nova Senha", type="password")
-        confirma_senha = st.text_input("Confirme a Nova Senha", type="password")
-        if st.form_submit_button("Alterar Senha"):
+        sa = st.text_input("Senha Atual", type="password")
+        nn = st.text_input("Nova Senha", type="password")
+        cn = st.text_input("Confirmar", type="password")
+        if st.form_submit_button("Alterar"):
             ss = conectar_gsheets()
             if ss:
                 try:
-                    ws = ss.worksheet("Usuarios")
-                    cell = ws.find(USER)
-                    if cell:
-                        senha_banco = ws.cell(cell.row, 2).value
-                        if str(senha_banco).strip() == senha_atual.strip():
-                            if nova_senha == confirma_senha and len(nova_senha)>0:
-                                ws.update_cell(cell.row, 2, nova_senha)
-                                st.success("Sucesso!"); time.sleep(2); logout(); st.rerun()
-                            else: st.error("Erro na nova senha.")
-                        else: st.error("Senha atual errada.")
-                    else: st.error("Usuário não encontrado.")
-                except Exception as e: st.error(f"Erro: {e}")
+                    ws = ss.worksheet("Usuarios"); cell = ws.find(USER)
+                    if cell and str(ws.cell(cell.row, 2).value).strip() == sa.strip():
+                        if nn == cn and len(nn)>0: ws.update_cell(cell.row, 2, nn); st.success("Sucesso!"); time.sleep(2); logout(); st.rerun()
+                        else: st.error("Erro na nova senha.")
+                    else: st.error("Senha atual errada.")
+                except: st.error("Erro")
