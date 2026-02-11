@@ -47,7 +47,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. CONFIGURAÇÃO DE FUSO HORÁRIO (CORREÇÃO BRASÍLIA) ---
-# Cria o fuso horário UTC-3 (Brasília)
+# Define o fuso horário UTC-3 (Brasília)
 FUSO_BR = timezone(timedelta(hours=-3))
 
 def data_hoje_br():
@@ -133,6 +133,7 @@ def excluir_aviso(msg_data):
             ws = ss.worksheet("Mensagens")
             data = ws.get_all_records()
             for i, row in enumerate(data):
+                # Compara dados para achar a linha correta
                 if (str(row.get('Data')) == str(msg_data.get('Data')) and
                     str(row.get('Destinatario')) == str(msg_data.get('Destinatario')) and
                     str(row.get('Mensagem')) == str(msg_data.get('Mensagem'))):
@@ -171,7 +172,7 @@ if st.session_state["usuario_atual"] is None:
         s = st.text_input("Senha", type="password").strip()
         if st.form_submit_button("Entrar"):
             nome, funcao, modalidade = verificar_login(u, s)
-            if nome == "BLOQUEADO": st.error("Bloqueado.")
+            if nome == "BLOQUEADO": st.error("Acesso Bloqueado. Contate o treinador.")
             elif nome:
                 st.session_state["usuario_atual"] = u
                 st.session_state["nome_usuario"] = nome
@@ -190,7 +191,7 @@ ADMIN = st.session_state["is_admin"]
 MODALIDADE = st.session_state["modalidade"]
 IS_MUSCULACAO = "muscula" in str(MODALIDADE).lower()
 
-# === DASHBOARD ===
+# === DASHBOARD (TELA INICIAL) ===
 if st.session_state["pagina_atual"] == "dashboard":
     c1, c2 = st.columns([3, 1])
     c1.title(f"Olá, {NOME}!")
@@ -215,7 +216,7 @@ if st.session_state["pagina_atual"] == "dashboard":
                 st.markdown('</div>', unsafe_allow_html=True)
         st.markdown("---")
 
-    # Resposta Aluno (DATA CORRIGIDA)
+    # Resposta Aluno
     with st.expander("💬 Falar com o Treinador"):
         with st.form("form_resp"):
             tx = st.text_area("Mensagem:")
@@ -223,8 +224,9 @@ if st.session_state["pagina_atual"] == "dashboard":
                 ss = conectar_gsheets()
                 if ss:
                     try:
+                        # Usa Data do Brasil
                         ss.worksheet("Mensagens").append_row([
-                            data_hoje_br().strftime("%d/%m/%Y"), # <--- Data BR
+                            data_hoje_br().strftime("%d/%m/%Y"), 
                             "ADMIN", 
                             tx, 
                             f"De: {NOME}"
@@ -232,12 +234,17 @@ if st.session_state["pagina_atual"] == "dashboard":
                         st.success("Enviado!")
                     except: st.error("Erro ao enviar")
     
-    # Treino de Hoje (DATA CORRIGIDA)
+    # TREINO DE HOJE (LÓGICA CORRIGIDA COM FUSO)
     treino = None
     agenda_records = safe_get_records("Agenda")
-    hoje = data_hoje_br().strftime("%d/%m/%Y") # <--- Data BR
+    hoje = data_hoje_br().strftime("%d/%m/%Y") # Pega data do Brasil
+    
     for r in agenda_records:
-        if str(r.get('ID_Usuario')) == USER and str(r.get('Data')) == hoje:
+        # Garante que compara string com string (limpa espaços extras)
+        r_data = str(r.get('Data')).strip()
+        r_id = str(r.get('ID_Usuario')).strip()
+        
+        if r_id == USER and r_data == hoje:
             treino = r; break
     
     st.subheader("📅 Treino de Hoje")
@@ -245,12 +252,15 @@ if st.session_state["pagina_atual"] == "dashboard":
         st.markdown(f"<div class='highlight-card'><h3>{treino.get('Tipo','Treino')}</h3><p>{treino.get('Detalhes','')}</p></div>", unsafe_allow_html=True)
     else: st.info("Descanso! 💤")
 
-    # Verifica Treino Realizado (DATA CORRIGIDA)
+    # Verifica Treino Realizado (LÓGICA CORRIGIDA COM FUSO)
     reg_records = safe_get_records("Registros")
     treinou_hoje = False
     for reg in reg_records:
-        if str(reg.get('ID_Usuario')) == USER and str(reg.get('Data')) == hoje:
+        reg_data = str(reg.get('Data')).strip()
+        reg_id = str(reg.get('ID_Usuario')).strip()
+        if reg_id == USER and reg_data == hoje:
             treinou_hoje = True; break
+            
     if treinou_hoje:
         st.markdown(f"<div class='success-card'>🎉 Parabéns! Treino Realizado!</div>", unsafe_allow_html=True)
 
@@ -276,7 +286,7 @@ if st.session_state["pagina_atual"] == "dashboard":
     st.button("🔑 Alterar Senha", on_click=navegar_para, args=("trocar_senha",))
     st.markdown('</div>', unsafe_allow_html=True)
 
-# === REGISTRO INTELIGENTE (DATA CORRIGIDA) ===
+# === REGISTRO INTELIGENTE ===
 elif st.session_state["pagina_atual"] == "registro":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("📝 Registrar Treino")
@@ -284,7 +294,7 @@ elif st.session_state["pagina_atual"] == "registro":
     if IS_MUSCULACAO:
         st.info("Confirme a realização do seu treino de força.")
         with st.form("reg_musc"):
-            dt = st.date_input("Data", data_hoje_br()) # <--- Padrão Hoje BR
+            dt = st.date_input("Data", data_hoje_br()) # Usa Data Brasil
             obs = st.text_area("Observações (Cargas, sensações, etc)")
             if st.form_submit_button("✅ CONFIRMAR TREINO REALIZADO"):
                 ss = conectar_gsheets()
@@ -294,7 +304,7 @@ elif st.session_state["pagina_atual"] == "registro":
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
     else:
         with st.form("reg_run"):
-            d = st.date_input("Data", data_hoje_br()) # <--- Padrão Hoje BR
+            d = st.date_input("Data", data_hoje_br()) # Usa Data Brasil
             di = st.number_input("Km", 0.0, step=0.1)
             te = st.text_input("Tempo Total", "00:00:00", help="HH:MM:SS")
             pe = st.slider("Cansaço", 0, 10, 5)
@@ -351,7 +361,7 @@ elif st.session_state["pagina_atual"] == "historico":
         else: st.info("Sem histórico.")
     else: st.info("Sem registros.")
 
-# === ADMIN (DATA CORRIGIDA) ===
+# === ADMIN ===
 elif st.session_state["pagina_atual"] == "admin_panel":
     if not ADMIN: navegar_para("dashboard"); st.rerun()
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
@@ -364,7 +374,8 @@ elif st.session_state["pagina_atual"] == "admin_panel":
         with st.form("at"):
             users = safe_get_records("Usuarios")
             l = [r['Usuario'] for r in users]
-            u = st.selectbox("Aluno", l); dt = st.date_input("Data", data_hoje_br()); tp = st.text_input("Tipo"); det = st.text_area("Detalhes") # <--- Data BR
+            # Agenda com Data Brasil
+            u = st.selectbox("Aluno", l); dt = st.date_input("Data", data_hoje_br()); tp = st.text_input("Tipo"); det = st.text_area("Detalhes")
             if st.form_submit_button("Agendar"): 
                 if ss: ss.worksheet("Agenda").append_row([u, dt.strftime("%d/%m/%Y"), tp, det]); st.success("Feito!")
     
@@ -386,7 +397,7 @@ elif st.session_state["pagina_atual"] == "admin_panel":
         with st.form("msg"):
             us = st.selectbox("Para", dest); tx = st.text_area("Msg"); tp = st.selectbox("Tipo", ["Aviso Geral", "Motivacional", "Cobrança"])
             if st.form_submit_button("Enviar"): 
-                if ss: ss.worksheet("Mensagens").append_row([data_hoje_br().strftime("%d/%m/%Y"), us, tx, tp]); st.success("Enviado!") # <--- Data BR
+                if ss: ss.worksheet("Mensagens").append_row([data_hoje_br().strftime("%d/%m/%Y"), us, tx, tp]); st.success("Enviado!")
         
         st.subheader("📥 Recebidas")
         msgs = safe_get_records("Mensagens")
@@ -462,7 +473,7 @@ elif st.session_state["pagina_atual"] == "agenda":
         else: st.info("Sem treinos.")
     else: st.info("Sem dados.")
 
-# === PROVAS (DATA CORRIGIDA) ===
+# === PROVAS ===
 elif st.session_state["pagina_atual"] == "provas":
     st.button("⬅ Voltar", on_click=navegar_para, args=("dashboard",))
     st.header("🏅 Provas")
