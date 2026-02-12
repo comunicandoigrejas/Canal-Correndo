@@ -6,6 +6,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from openai import OpenAI
 import pandas as pd
 import time
+import requests  # <--- NOVA BIBLIOTECA PARA TELEGRAM
 
 # --- 1. CONFIGURAÇÃO E CSS ---
 st.set_page_config(page_title="Running Coach", page_icon="🏃", layout="centered")
@@ -46,16 +47,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONFIGURAÇÃO DE FUSO HORÁRIO (CORREÇÃO BRASÍLIA) ---
-# Define o fuso horário UTC-3 (Brasília)
+# --- 2. CONFIGURAÇÃO DE FUSO HORÁRIO (BRASÍLIA) ---
 FUSO_BR = timezone(timedelta(hours=-3))
 
 def data_hoje_br():
-    """Retorna a data de hoje correta no fuso de Brasília"""
     return datetime.datetime.now(FUSO_BR).date()
 
 def data_hora_br():
-    """Retorna data e hora atuais em Brasília"""
     return datetime.datetime.now(FUSO_BR)
 
 # --- 3. GERENCIAMENTO DE SESSÃO ---
@@ -75,7 +73,7 @@ def logout():
     st.session_state["messages"] = []
     st.session_state["messages_admin"] = []
 
-# --- 4. CONEXÃO E LÓGICA (COM CACHE E PROTEÇÃO) ---
+# --- 4. CONEXÃO E LÓGICA ---
 
 @st.cache_resource(ttl=600)
 def conectar_gsheets():
@@ -94,7 +92,6 @@ def conectar_gsheets():
         return None
 
 def safe_get_records(worksheet_name):
-    """Função segura para ler dados sem quebrar o app"""
     ss = conectar_gsheets()
     if not ss: return []
     try:
@@ -133,7 +130,6 @@ def excluir_aviso(msg_data):
             ws = ss.worksheet("Mensagens")
             data = ws.get_all_records()
             for i, row in enumerate(data):
-                # Compara dados para achar a linha correta
                 if (str(row.get('Data')) == str(msg_data.get('Data')) and
                     str(row.get('Destinatario')) == str(msg_data.get('Destinatario')) and
                     str(row.get('Mensagem')) == str(msg_data.get('Mensagem'))):
@@ -141,6 +137,19 @@ def excluir_aviso(msg_data):
                     return True
         except: pass
     return False
+
+# --- FUNÇÃO NOVA: ENVIAR TELEGRAM ---
+def notificar_telegram(mensagem):
+    try:
+        token = st.secrets.get("telegram_token")
+        chat_id = st.secrets.get("telegram_chat_id")
+        
+        if token and chat_id:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = {"chat_id": chat_id, "text": mensagem}
+            requests.post(url, data=payload)
+    except:
+        pass # Se der erro no telegram, não trava o app
 
 def carregar_contexto_ia():
     try:
@@ -191,7 +200,7 @@ ADMIN = st.session_state["is_admin"]
 MODALIDADE = st.session_state["modalidade"]
 IS_MUSCULACAO = "muscula" in str(MODALIDADE).lower()
 
-# === DASHBOARD (TELA INICIAL) ===
+# === DASHBOARD ===
 if st.session_state["pagina_atual"] == "dashboard":
     c1, c2 = st.columns([3, 1])
     c1.title(f"Olá, {NOME}!")
@@ -216,7 +225,7 @@ if st.session_state["pagina_atual"] == "dashboard":
                 st.markdown('</div>', unsafe_allow_html=True)
         st.markdown("---")
 
-    # Resposta Aluno
+    # Resposta Aluno (COM NOTIFICAÇÃO)
     with st.expander("💬 Falar com o Treinador"):
         with st.form("form_resp"):
             tx = st.text_area("Mensagem:")
@@ -224,26 +233,26 @@ if st.session_state["pagina_atual"] == "dashboard":
                 ss = conectar_gsheets()
                 if ss:
                     try:
-                        # Usa Data do Brasil
                         ss.worksheet("Mensagens").append_row([
                             data_hoje_br().strftime("%d/%m/%Y"), 
                             "ADMIN", 
                             tx, 
                             f"De: {NOME}"
                         ])
+                        # DISPARA O TELEGRAM AQUI
+                        notificar_telegram(f"🔔 Nova mensagem de {NOME}:\n\n{tx}")
+                        
                         st.success("Enviado!")
                     except: st.error("Erro ao enviar")
     
-    # TREINO DE HOJE (LÓGICA CORRIGIDA COM FUSO)
+    # Treino de Hoje
     treino = None
     agenda_records = safe_get_records("Agenda")
-    hoje = data_hoje_br().strftime("%d/%m/%Y") # Pega data do Brasil
+    hoje = data_hoje_br().strftime("%d/%m/%Y")
     
     for r in agenda_records:
-        # Garante que compara string com string (limpa espaços extras)
         r_data = str(r.get('Data')).strip()
         r_id = str(r.get('ID_Usuario')).strip()
-        
         if r_id == USER and r_data == hoje:
             treino = r; break
     
@@ -252,7 +261,7 @@ if st.session_state["pagina_atual"] == "dashboard":
         st.markdown(f"<div class='highlight-card'><h3>{treino.get('Tipo','Treino')}</h3><p>{treino.get('Detalhes','')}</p></div>", unsafe_allow_html=True)
     else: st.info("Descanso! 💤")
 
-    # Verifica Treino Realizado (LÓGICA CORRIGIDA COM FUSO)
+    # Verifica Treino Realizado
     reg_records = safe_get_records("Registros")
     treinou_hoje = False
     for reg in reg_records:
@@ -294,17 +303,20 @@ elif st.session_state["pagina_atual"] == "registro":
     if IS_MUSCULACAO:
         st.info("Confirme a realização do seu treino de força.")
         with st.form("reg_musc"):
-            dt = st.date_input("Data", data_hoje_br()) # Usa Data Brasil
+            dt = st.date_input("Data", data_hoje_br())
             obs = st.text_area("Observações (Cargas, sensações, etc)")
             if st.form_submit_button("✅ CONFIRMAR TREINO REALIZADO"):
                 ss = conectar_gsheets()
                 if ss:
                     ss.worksheet("Registros").append_row([USER, dt.strftime("%d/%m/%Y"), 0, "00:00", 5, obs])
+                    # NOTIFICA TELEGRAM
+                    notificar_telegram(f"💪 {NOME} acabou de registrar treino de Musculação!")
+                    
                     st.success("Registrado!")
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
     else:
         with st.form("reg_run"):
-            d = st.date_input("Data", data_hoje_br()) # Usa Data Brasil
+            d = st.date_input("Data", data_hoje_br())
             di = st.number_input("Km", 0.0, step=0.1)
             te = st.text_input("Tempo Total", "00:00:00", help="HH:MM:SS")
             pe = st.slider("Cansaço", 0, 10, 5)
@@ -315,6 +327,9 @@ elif st.session_state["pagina_atual"] == "registro":
                 ss = conectar_gsheets()
                 if ss: 
                     ss.worksheet("Registros").append_row([USER, d.strftime("%d/%m/%Y"), di, te, pe, ob])
+                    # NOTIFICA TELEGRAM
+                    notificar_telegram(f"🏃 {NOME} registrou Corrida!\nKm: {di}\nTempo: {te}\nObs: {ob}")
+                    
                     st.success("Salvo!")
                     time.sleep(1.5); navegar_para("dashboard"); st.rerun()
 
@@ -374,7 +389,6 @@ elif st.session_state["pagina_atual"] == "admin_panel":
         with st.form("at"):
             users = safe_get_records("Usuarios")
             l = [r['Usuario'] for r in users]
-            # Agenda com Data Brasil
             u = st.selectbox("Aluno", l); dt = st.date_input("Data", data_hoje_br()); tp = st.text_input("Tipo"); det = st.text_area("Detalhes")
             if st.form_submit_button("Agendar"): 
                 if ss: ss.worksheet("Agenda").append_row([u, dt.strftime("%d/%m/%Y"), tp, det]); st.success("Feito!")
